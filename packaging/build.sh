@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: MIT
 # Build the signed over-the-air packages (douglas-base, douglas-kernel) into
 #   out/repo/alpine/v3.24/douglas/aarch64/   (APKINDEX.tar.gz + *.apk)
-# Needs out/boot.img from kernel/build.sh. Run as root: sudo packaging/build.sh
+# Needs out/boot.img from kernel/build.sh. Run as root:
+#   sudo packaging/build.sh                  build both packages
+#   sudo packaging/build.sh douglas-base     rebuild only the named package(s); packages already
+#                                            in out/repo stay in the index unchanged
 #
 # The first run creates the repository signing key in $KEY_DIR (see config.sh). Back it up:
 # tablets only accept updates signed with the key whose public half they already have.
@@ -10,7 +13,10 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/../config.sh"
 CH=$WORK/chroot-build
-[ -f "$OUT/boot.img" ] || { echo "out/boot.img missing: run kernel/build.sh first" >&2; exit 1; }
+pkgs=${*:-douglas-base douglas-kernel}
+dest=$OUT/repo/alpine/$ALPINE_BRANCH/douglas/aarch64
+case " $pkgs " in *" douglas-kernel "*) ;; *) pkgs_nokernel=1 ;; esac
+[ -n "${pkgs_nokernel:-}" ] || [ -f "$OUT/boot.img" ] || { echo "out/boot.img missing: run kernel/build.sh first" >&2; exit 1; }
 
 # signing key (private key stays outside the repository)
 mkdir -p "$KEY_DIR"; chmod 700 "$KEY_DIR"
@@ -25,21 +31,23 @@ echo "$UPDATE_REPO_URL" > "$here/douglas-base/repository-url"
 
 # stage the package sources in the chroot
 rm -rf "$CH/build"
-mkdir -p "$CH/build/douglas" "$CH/build/keys"
+mkdir -p "$CH/build/douglas" "$CH/build/keys" "$CH/build/packages/douglas/aarch64"
+# start from the published repository so packages that are not rebuilt keep their exact files
+[ -d "$dest" ] && cp "$dest"/*.apk "$CH/build/packages/douglas/aarch64/" 2>/dev/null || true
 cp -r "$here/douglas-base" "$here/douglas-kernel" "$CH/build/douglas/"
-cp "$OUT/boot.img" "$CH/build/douglas/douglas-kernel/boot.img"
+[ -f "$OUT/boot.img" ] && cp "$OUT/boot.img" "$CH/build/douglas/douglas-kernel/boot.img"
 sed -i "s|https://github.com/OWNER/REPO|https://github.com/$GITHUB_REPO|" "$CH"/build/douglas/*/APKBUILD
 cp "$KEY_DIR/douglas-repo.rsa" "$CH/build/keys/"
 cp "$here/douglas-base/douglas-repo.rsa.pub" "$CH/build/keys/"
 
-"$here/../scripts/alpine-chroot.sh" "$CH" sh -euc '
+"$here/../scripts/alpine-chroot.sh" "$CH" env PKGS="$pkgs" sh -euc '
 	apk update >/dev/null
 	apk add alpine-sdk >/dev/null
 	cp /build/keys/douglas-repo.rsa.pub /etc/apk/keys/
 	export PACKAGER="Fire HD 8 Linux builder <noreply@localhost>"
 	export PACKAGER_PRIVKEY=/build/keys/douglas-repo.rsa
 	export REPODEST=/build/packages
-	for p in douglas-base douglas-kernel; do
+	for p in $PKGS; do
 		cd /build/douglas/$p
 		abuild -F checksum
 		abuild -F -r
@@ -47,8 +55,8 @@ cp "$here/douglas-base/douglas-repo.rsa.pub" "$CH/build/keys/"
 	rm -f /build/keys/douglas-repo.rsa
 '
 
-dest=$OUT/repo/alpine/$ALPINE_BRANCH/douglas/aarch64
 mkdir -p "$dest"
+rm -f "$dest"/*.apk
 cp "$CH"/build/packages/douglas/aarch64/*.apk "$dest/"
 cp "$CH"/build/packages/douglas/aarch64/APKINDEX.tar.gz "$dest/"
 rm -rf "$CH/build"

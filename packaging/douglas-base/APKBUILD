@@ -3,7 +3,7 @@
 # Built by packaging/build.sh inside an Alpine aarch64 chroot.
 pkgname=douglas-base
 pkgver=1.0.0
-pkgrel=0
+pkgrel=1
 pkgdesc="Amazon Fire HD 8 (2017) support: Wi-Fi/Bluetooth tools, sound, sleep, tuning, updates"
 url="https://github.com/OWNER/REPO"
 arch="aarch64"

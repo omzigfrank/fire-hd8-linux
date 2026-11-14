@@ -14,3 +14,8 @@ Contents
 * Over-the-air updates for the system and the kernel
 
 Check downloads with `sha256sum -c SHA256SUMS`.
+
+**Testing status:** the kernel, the system packages and the over-the-air update/rollback path
+were tested on a real tablet, and `install.sh` was tested in TWRP up to its confirmation
+prompt plus the kernel write. Its final step (writing the system image to a fresh tablet's
+`userdata`) has not yet been run end to end — please report how it goes.

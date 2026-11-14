@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+# Developer option: a root shell on the USB serial gadget (/dev/ttyGS0, shows up on a PC as
+# a serial/COM port). Anyone with a USB cable gets root, so it is OFF by default.
+#   Enable:  doas rc-update add douglas-usbshell default && doas rc-service douglas-usbshell start
+#   Disable: doas rc-service douglas-usbshell stop && doas rc-update del douglas-usbshell default
+
+description="Root shell on the USB serial port (developer option)"
+command=/sbin/getty
+command_args="-n -l /bin/sh 115200 ttyGS0"
+supervisor=supervise-daemon
+respawn_delay=2
+respawn_max=0
+
+depend() {
+	need localmount
+}
+
+start_pre() {
+	[ -c /dev/ttyGS0 ] || { eerror "no /dev/ttyGS0 (USB serial gadget not active)"; return 1; }
+}

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=System update restart reminder
+Exec=/usr/libexec/douglas/douglas-update-notify
+NoDisplay=true
+X-KDE-autostart-phase=2

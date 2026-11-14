@@ -1,0 +1,27 @@
+# Maintainer: Fire HD 8 Linux <noreply@users.noreply.github.com>
+# Fire HD 8 (2017, "douglas") Linux kernel, delivered over the air.
+# Installing or upgrading this package writes the boot image to the boot_x partition
+# (douglas-flash-kernel), keeping the previous kernel for rollback, and asks for a restart.
+# Built by packaging/build.sh from out/boot.img (kernel/build.sh).
+pkgname=douglas-kernel
+pkgver=7.3.4
+pkgrel=0
+pkgdesc="Linux kernel for the Amazon Fire HD 8 (2017); flashed to boot_x on install"
+url="https://github.com/OWNER/REPO"
+arch="aarch64"
+license="GPL-2.0-only"
+depends=""
+install="$pkgname.post-install $pkgname.post-upgrade"
+options="!check !strip !tracedeps"
+source="
+	boot.img
+	douglas-flash-kernel
+	"
+builddir="$srcdir"
+
+package() {
+	cd "$srcdir"
+	install -Dm644 boot.img "$pkgdir"/usr/share/douglas/boot/boot.img
+	sha256sum boot.img | sed 's| .*|  boot.img|' > "$pkgdir"/usr/share/douglas/boot/boot.img.sha256
+	install -Dm755 douglas-flash-kernel "$pkgdir"/usr/sbin/douglas-flash-kernel
+}

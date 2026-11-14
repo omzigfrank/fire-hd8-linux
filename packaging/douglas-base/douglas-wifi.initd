@@ -1,0 +1,48 @@
+#!/sbin/openrc-run
+# MT6625L (CONSYS) Wi-Fi and Bluetooth for the Fire HD 8 (2017, douglas): WMT chip init,
+# ROM patch download through the STP launcher, then enable the Wi-Fi function
+# (creates the mt6625_0 interface; the kernel registers Bluetooth hci0 on that first power-on).
+
+description="MediaTek MT6625L Wi-Fi/Bluetooth (WMT/STP)"
+command=/usr/libexec/douglas/stp_uart_launcher
+command_args="-p /etc/firmware"
+command_background=true
+pidfile=/run/douglas-wifi-launcher.pid
+output_log=/var/log/douglas-wifi.log
+error_log=/var/log/douglas-wifi.log
+
+depend() {
+	need localmount
+	after douglas-firstboot
+	before networkmanager bluetooth
+}
+
+start_pre() {
+	[ -c /dev/wmtdetect ] || { eerror "no /dev/wmtdetect (kernel WMT driver missing)"; return 1; }
+	if [ ! -f /etc/firmware/WIFI_RAM_CODE_8163 ]; then
+		eerror "Wi-Fi firmware missing; run: douglas-firmware extract"
+		return 1
+	fi
+	/usr/libexec/douglas/wmt_loader >>/var/log/douglas-wifi.log 2>&1
+}
+
+start_post() {
+	# The launcher powers the chip and downloads the ROM patches first; the Wi-Fi function
+	# can only be enabled after that, so retry for up to about a minute.
+	local i=0
+	while [ $i -lt 20 ]; do
+		sleep 3
+		if [ -c /dev/wmtWifi ] && echo 1 > /dev/wmtWifi 2>/dev/null; then
+			einfo "MT6625L Wi-Fi enabled"
+			return 0
+		fi
+		i=$((i + 1))
+	done
+	ewarn "could not enable the Wi-Fi function (see dmesg)"
+	return 0
+}
+
+stop_pre() {
+	[ -c /dev/wmtWifi ] && echo 0 > /dev/wmtWifi 2>/dev/null
+	return 0
+}

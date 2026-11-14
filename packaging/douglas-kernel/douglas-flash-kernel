@@ -1,0 +1,86 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Write a Fire HD 8 Linux boot image to the boot_x partition, safely.
+#
+#   douglas-flash-kernel [IMAGE]        default: /usr/share/douglas/boot/boot.img
+#   douglas-flash-kernel --rollback     put back the kernel that was running before the
+#                                       last update (/var/lib/douglas/boot_x.previous.img)
+#
+# Checks: running on a Fire HD 8 (douglas); image is an Android boot image with the MediaTek
+# KERNEL header and matches its .sha256; image fits the partition. The current boot_x is
+# saved first, the write is read back and compared, and the desktop is told to offer a
+# restart. Does nothing (successfully) when not running on the tablet, e.g. while an image
+# is being built in a chroot on a PC.
+set -eu
+IMG=/usr/share/douglas/boot/boot.img
+PREV=/var/lib/douglas/boot_x.previous.img
+FLAG=/run/douglas/reboot-required
+log() { echo "douglas-flash-kernel: $*"; logger -t douglas-flash-kernel "$*" 2>/dev/null || true; }
+die() { log "ERROR: $*"; exit 1; }
+
+rollback=
+case "${1:-}" in
+--rollback) rollback=1; IMG=$PREV ;;
+"") ;;
+*) IMG=$1 ;;
+esac
+
+if ! grep -q 'amazon,douglas' /proc/device-tree/compatible 2>/dev/null; then
+	log "not running on a Fire HD 8 (douglas); boot_x left alone"
+	exit 0
+fi
+[ "$(id -u)" = 0 ] || die "must run as root"
+[ -f "$IMG" ] || die "no image at $IMG"
+
+part=
+for d in /sys/class/block/mmcblk0p*; do
+	grep -qx PARTNAME=boot_x "$d/uevent" 2>/dev/null && part=/dev/${d##*/}
+done
+[ -n "$part" ] || die "boot_x partition not found"
+
+# sanity checks on the new image
+[ "$(head -c 8 "$IMG")" = "ANDROID!" ] || die "$IMG is not an Android boot image"
+magic=$(dd if="$IMG" bs=1 skip=2048 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')
+[ "$magic" = 88168858 ] || die "$IMG has no MediaTek KERNEL header"
+if [ -z "$rollback" ] && [ -f "$IMG.sha256" ]; then
+	want=$(cut -d' ' -f1 "$IMG.sha256")
+	have=$(sha256sum "$IMG" | cut -d' ' -f1)
+	[ "$want" = "$have" ] || die "checksum mismatch for $IMG"
+fi
+size=$(stat -c %s "$IMG")
+psize=$(( $(cat /sys/class/block/${part##*/}/size) * 512 ))
+[ "$size" -le "$psize" ] || die "image ($size bytes) larger than boot_x ($psize bytes)"
+
+# already installed? (compare against the same number of bytes on the partition)
+cur=$(head -c "$size" "$part" | sha256sum | cut -d' ' -f1)
+new=$(sha256sum "$IMG" | cut -d' ' -f1)
+if [ "$cur" = "$new" ]; then
+	log "boot_x already holds this kernel"
+	exit 0
+fi
+
+mkdir -p "${PREV%/*}"
+if [ -z "$rollback" ]; then
+	head -c "$psize" "$part" > "$PREV.tmp" && mv "$PREV.tmp" "$PREV"
+	log "saved the current kernel to $PREV"
+fi
+
+dd if="$IMG" of="$part" bs=1M conv=fsync 2>/dev/null
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+back=$(head -c "$size" "$part" | sha256sum | cut -d' ' -f1)
+if [ "$back" != "$new" ]; then
+	if [ -z "$rollback" ] && [ -f "$PREV" ]; then
+		dd if="$PREV" of="$part" bs=1M conv=fsync 2>/dev/null; sync
+		die "verification failed; previous kernel restored"
+	fi
+	die "verification failed"
+fi
+
+mkdir -p "${FLAG%/*}"
+if [ -n "$rollback" ]; then
+	echo "The previous system kernel has been restored." > "$FLAG"
+else
+	echo "A new system kernel has been installed (${2:-$(basename "$IMG")})." > "$FLAG"
+fi
+log "boot_x updated from $IMG ($new); restart to use it"

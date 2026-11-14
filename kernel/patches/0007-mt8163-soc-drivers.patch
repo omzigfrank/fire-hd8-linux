@@ -1,0 +1,4784 @@
+Fire HD 8 (2017, douglas): mt8163-soc-drivers
+
+---
+--- a/drivers/clk/mediatek/Kconfig
++++ b/drivers/clk/mediatek/Kconfig
+@@ -477,6 +477,56 @@
+ 	help
+ 	  This driver supports MediaTek MT8135 clocks.
+ 
++config COMMON_CLK_MT8163
++	tristate "Clock driver for MediaTek MT8163"
++	depends on (ARCH_MEDIATEK && ARM64) || COMPILE_TEST
++	select COMMON_CLK_MEDIATEK
++	default ARCH_MEDIATEK
++	help
++	  This driver supports MediaTek MT8163 basic clocks.
++
++config COMMON_CLK_MT8163_AUDSYS
++	tristate "Clock driver for MediaTek MT8163 audiosys"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 audiosys clocks.
++
++config COMMON_CLK_MT8163_IMGSYS
++	tristate "Clock driver for MediaTek MT8163 imgsys"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 imgsys clocks.
++
++config COMMON_CLK_MT8163_MFGCFG
++	tristate "Clock driver for MediaTek MT8163 mfgcfg"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 mfgcfg clocks.
++
++config COMMON_CLK_MT8163_MMSYS
++	tristate "Clock driver for MediaTek MT8163 mmsys"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 mmsys clocks.
++
++config COMMON_CLK_MT8163_VDECSYS
++	tristate "Clock driver for MediaTek MT8163 vdecsys"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 vdecsys clocks.
++
++config COMMON_CLK_MT8163_VENCSYS
++	tristate "Clock driver for MediaTek MT8163 vencsys"
++	depends on COMMON_CLK_MT8163
++	default COMMON_CLK_MT8163
++	help
++	  This driver supports MediaTek MT8163 vencsys clocks.
++
+ config COMMON_CLK_MT8167
+ 	tristate "Clock driver for MediaTek MT8167"
+ 	depends on (ARCH_MEDIATEK && ARM64) || COMPILE_TEST
+--- a/drivers/clk/mediatek/Makefile
++++ b/drivers/clk/mediatek/Makefile
+@@ -73,6 +73,13 @@
+ obj-$(CONFIG_COMMON_CLK_MT7988) += clk-mt7988-eth.o
+ obj-$(CONFIG_COMMON_CLK_MT7988) += clk-mt7988-xfipll.o
+ obj-$(CONFIG_COMMON_CLK_MT8135) += clk-mt8135-apmixedsys.o clk-mt8135.o
++obj-$(CONFIG_COMMON_CLK_MT8163) += clk-mt8163-apmixedsys.o clk-mt8163-infracfg.o clk-mt8163-topckgen.o
++obj-$(CONFIG_COMMON_CLK_MT8163_AUDSYS) += clk-mt8163-audsys.o
++obj-$(CONFIG_COMMON_CLK_MT8163_IMGSYS) += clk-mt8163-imgsys.o
++obj-$(CONFIG_COMMON_CLK_MT8163_MFGCFG) += clk-mt8163-mfgcfg.o
++obj-$(CONFIG_COMMON_CLK_MT8163_MMSYS) += clk-mt8163-mmsys.o
++obj-$(CONFIG_COMMON_CLK_MT8163_VDECSYS) += clk-mt8163-vdecsys.o
++obj-$(CONFIG_COMMON_CLK_MT8163_VENCSYS) += clk-mt8163-vencsys.o
+ obj-$(CONFIG_COMMON_CLK_MT8167) += clk-mt8167-apmixedsys.o clk-mt8167.o
+ obj-$(CONFIG_COMMON_CLK_MT8167_AUDSYS) += clk-mt8167-aud.o
+ obj-$(CONFIG_COMMON_CLK_MT8167_IMGSYS) += clk-mt8167-img.o
+--- a/drivers/clk/mediatek/clk-mt8163-apmixedsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-apmixedsys.c
+@@ -0,0 +1,208 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2015 MediaTek Inc.
++ *         James Liao <jamesjj.liao@mediatek.com>
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-gate.h"
++#include "clk-mtk.h"
++#include "clk-pll.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-apmixedsys.h>
++
++#define REG_REF2USB		0x8
++
++#define MT8163_PLL_FMAX		(2500UL * MHZ)
++
++#define CON0_MT8163_RST_BAR	BIT(24)
++
++static const struct mtk_gate_regs apmixed_cg_regs = {
++	.set_ofs = 0x0,
++	.clr_ofs = 0x0,
++	.sta_ofs = 0x0,
++};
++
++#define GATE_APMIXED_FLAGS(_id, _name, _parent, _shift, _flags)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &apmixed_cg_regs,		\
++		       _shift, &mtk_clk_gate_ops_no_setclr_inv, _flags)
++
++#define GATE_APMIXED(_id, _name, _parent, _shift)			\
++	GATE_APMIXED_FLAGS(_id, _name, _parent, _shift,	0)
++
++/*
++ * CRITICAL CLOCK:
++ * apmixed_armpll26m is the toppest clock gate of all PLLs.
++ */
++static const struct mtk_gate apmixed_clks[] = {
++	GATE_APMIXED(CLK_APMIXED_SSUSB_26M, "apmixed_ssusb26m", "clk26m", 4),
++	GATE_APMIXED_FLAGS(CLK_APMIXED_ARMPLL_26M, "apmixed_armpll26m",
++			   "clk26m", 5, CLK_IS_CRITICAL),
++	GATE_APMIXED(CLK_APMIXED_MIPI_26M, "apmixed_mipi26m", "clk26m", 6),
++};
++
++#define _PLL(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,	\
++			_pd_reg, _pd_shift, _tuner_reg, _tuner_en_reg,	\
++			_tuner_en_bit, _pcw_reg, _pcw_shift,		\
++			_div_table) {					\
++		.id = _id,						\
++		.name = _name,						\
++		.reg = _reg,						\
++		.pwr_reg = _pwr_reg,					\
++		.en_mask = _en_mask,					\
++		.flags = _flags,					\
++		.rst_bar_mask = CON0_MT8163_RST_BAR,			\
++		.fmax = MT8163_PLL_FMAX,				\
++		.pcwbits = _pcwbits,					\
++		.pd_reg = _pd_reg,					\
++		.pd_shift = _pd_shift,					\
++		.tuner_reg = _tuner_reg,				\
++		.tuner_en_reg = _tuner_en_reg,				\
++		.tuner_en_bit = _tuner_en_bit,				\
++		.pcw_reg = _pcw_reg,					\
++		.pcw_shift = _pcw_shift,				\
++		.div_table = _div_table,				\
++	}
++
++#define PLL(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,			\
++			_pd_reg, _pd_shift, _tuner_reg, _pcw_reg,			\
++			_pcw_shift)							\
++		_PLL(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,		\
++			_pd_reg, _pd_shift, _tuner_reg, 0, 0, _pcw_reg, _pcw_shift,	\
++			NULL)
++
++#define PLL_B(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,			\
++			_pd_reg, _pd_shift, _tuner_reg, _pcw_reg,			\
++			_pcw_shift, _div_table)						\
++		_PLL(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,		\
++			_pd_reg, _pd_shift, _tuner_reg, 0, 0, _pcw_reg, _pcw_shift,	\
++			_div_table)
++
++#define PLL_C(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,			\
++			_pd_reg, _pd_shift, _tuner_reg, _tuner_en_reg,			\
++			_tuner_en_bit, _pcw_reg,					\
++			_pcw_shift)							\
++		_PLL(_id, _name, _reg, _pwr_reg, _en_mask, _flags, _pcwbits,		\
++			_pd_reg, _pd_shift, _tuner_reg, _tuner_en_reg,			\
++			_tuner_en_bit, _pcw_reg, _pcw_shift,				\
++			NULL)
++
++static const struct mtk_pll_div_table armpll_div_table[] = {
++	{ .div = 0, .freq = MT8163_PLL_FMAX },
++	{ .div = 1, .freq = 1001000000 },
++	{ .div = 2, .freq = 520000000 },
++	{ .div = 3, .freq = 260000000 },
++	{ .div = 4, .freq = 130000000 },
++	{ /* sentinel */}
++};
++
++static const struct mtk_pll_div_table mmpll_div_table[] = {
++	{ .div = 0, .freq = MT8163_PLL_FMAX },
++	{ .div = 1, .freq = 1000000000 },
++	{ .div = 2, .freq = 625000000 },
++	{ .div = 3, .freq = 253500000 },
++	{ .div = 4, .freq = 126750000 },
++	{ /* sentinel */ }
++};
++
++static const struct mtk_pll_data plls[] = {
++	PLL_B(CLK_APMIXED_ARMPLL, "armpll", 0x210, 0x21c, 0x1, PLL_AO, 21, 0x214, 24, 0x0, 0x214, 0, armpll_div_table),
++	PLL(CLK_APMIXED_MAINPLL, "mainpll", 0x220, 0x22c, 0x1, HAVE_RST_BAR, 21, 0x220, 4, 0x0, 0x224, 0),
++	PLL(CLK_APMIXED_UNIVPLL, "univpll", 0x230, 0x23c, 0x1, HAVE_RST_BAR, 21, 0x230, 4, 0x0, 0x234, 0),
++	PLL_B(CLK_APMIXED_MMPLL, "mmpll", 0x240, 0x24c, 0x1, 0, 21, 0x244, 24, 0x0, 0x244, 0, mmpll_div_table),
++	PLL(CLK_APMIXED_MSDCPLL, "msdcpll", 0x250, 0x25c, 0x1, 0, 21, 0x250, 4, 0x0, 0x254, 0),
++	PLL(CLK_APMIXED_VENCPLL, "vencpll", 0x260, 0x26c, 0x1, 0, 21, 0x260, 4, 0x0, 0x264, 0),
++	PLL(CLK_APMIXED_TVDPLL, "tvdpll", 0x270, 0x27c, 0x1, 0, 21, 0x270, 4, 0x0, 0x274, 0),
++	PLL(CLK_APMIXED_MPLL, "mpll", 0x280, 0x28c, 0x1, 0, 21, 0x280, 4, 0x0, 0x284, 0),
++	PLL_C(CLK_APMIXED_AUD1PLL, "aud1pll", 0x2a0, 0x2ac, 0x1, 0, 31, 0x2a0, 4, 0x300, 0x014, 10, 0x2a4, 0),
++	PLL_C(CLK_APMIXED_AUD2PLL, "aud2pll", 0x2b0, 0x2bc, 0x1, 0, 31, 0x2b0, 4, 0x304, 0x014, 11, 0x2b4, 0),
++	PLL(CLK_APMIXED_LVDSPLL, "lvdspll", 0x2c0, 0x2cc, 0x1, 0, 21, 0x2c0, 4, 0x0, 0x2c4, 0),
++};
++
++static const struct of_device_id of_match_clk_mt8163_apmixed[] = {
++	{ .compatible = "mediatek,mt8163-apmixedsys" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_apmixed);
++
++static int clk_mt8163_apmixed_probe(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *clk_data;
++	struct device *dev = &pdev->dev;
++	struct device_node *node = dev->of_node;
++	void __iomem *base;
++	struct clk_hw *hw;
++	int ret;
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++
++	clk_data = mtk_alloc_clk_data(CLK_APMIXED_NR_CLK);
++	if (!clk_data)
++		return -ENOMEM;
++
++	ret = mtk_clk_register_plls(dev, plls, ARRAY_SIZE(plls), clk_data);
++	if (ret)
++		goto free_clk_data;
++
++	ret = mtk_clk_register_gates(&pdev->dev, node, apmixed_clks,
++				     ARRAY_SIZE(apmixed_clks), clk_data);
++	if (ret)
++		goto unregister_plls;
++
++	hw = mtk_clk_register_ref2usb_tx("ref2usb_tx", "clk26m", base + REG_REF2USB);
++	if (IS_ERR(hw)) {
++		ret = PTR_ERR(hw);
++		dev_err(dev, "Failed to register ref2usb_tx: %d\n", ret);
++		goto unregister_gates;
++	}
++	clk_data->hws[CLK_APMIXED_REF2USB_TX] = hw;
++
++	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, clk_data);
++	if (ret) {
++		dev_err(dev, "Cannot register clock provider: %d\n", ret);
++		goto unregister_ref2usb;
++	}
++
++	return 0;
++
++unregister_ref2usb:
++	mtk_clk_unregister_ref2usb_tx(clk_data->hws[CLK_APMIXED_REF2USB_TX]);
++unregister_gates:
++	mtk_clk_unregister_gates(apmixed_clks, ARRAY_SIZE(apmixed_clks), clk_data);
++unregister_plls:
++	mtk_clk_unregister_plls(plls, ARRAY_SIZE(plls), clk_data);
++free_clk_data:
++	mtk_free_clk_data(clk_data);
++	return ret;
++}
++
++static void clk_mt8163_apmixed_remove(struct platform_device *pdev)
++{
++	struct device_node *node = pdev->dev.of_node;
++	struct clk_hw_onecell_data *clk_data = platform_get_drvdata(pdev);
++
++	of_clk_del_provider(node);
++	mtk_clk_unregister_ref2usb_tx(clk_data->hws[CLK_APMIXED_REF2USB_TX]);
++	mtk_clk_unregister_plls(plls, ARRAY_SIZE(plls), clk_data);
++	mtk_free_clk_data(clk_data);
++}
++
++static struct platform_driver clk_mt8163_apmixed_drv = {
++	.probe = clk_mt8163_apmixed_probe,
++	.remove = clk_mt8163_apmixed_remove,
++	.driver = {
++		.name = "clk-mt8163-apmixed",
++		.of_match_table = of_match_clk_mt8163_apmixed,
++	},
++};
++module_platform_driver(clk_mt8163_apmixed_drv);
++
++MODULE_AUTHOR("James Liao <jamesjj.liao@mediatek.com>");
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 apmixed clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-audsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-audsys.c
+@@ -0,0 +1,113 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++
++#include "clk-gate.h"
++#include "clk-mtk.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-audsys.h>
++
++#define AUDIO_CLK_AUDDIV_0	0x05a0
++#define AUDIO_CLK_AUDDIV_1	0x05a4
++
++static const char * const apll_div_parents[] = {
++	"aud_1_sel",
++	"aud_2_sel"
++};
++
++static const struct mtk_gate_regs aud_cg_regs = {
++	.set_ofs = 0x0,
++	.clr_ofs = 0x0,
++	.sta_ofs = 0x0,
++};
++
++#define GATE_AUD(_id, _name, _parent, _shift)		\
++	GATE_MTK(_id, _name, _parent, &aud_cg_regs, _shift, &mtk_clk_gate_ops_no_setclr)
++
++static const struct mtk_gate aud_clks[] = {
++	GATE_AUD(CLK_AUDIO_AFE, "aud_afe", "audio_sel", 2),
++	GATE_AUD(CLK_AUDIO_I2S, "aud_i2s", NULL, 6),
++	GATE_AUD(CLK_AUDIO_22M, "aud_22m", "audio_sel", 8),
++	GATE_AUD(CLK_AUDIO_24M, "aud_24m", "audio_sel", 9),
++	GATE_AUD(CLK_AUDIO_SPDF2, "aud_spdf2", NULL, 11),
++	GATE_AUD(CLK_AUDIO_APLL2_TUNER, "aud_apll2_tnr", "aud_2_sel", 18),
++	GATE_AUD(CLK_AUDIO_APLL_TUNER, "aud_apll_tnr", "aud_1_sel", 19),
++	GATE_AUD(CLK_AUDIO_HDMI, "aud_hdmi", NULL, 20),
++	GATE_AUD(CLK_AUDIO_SPDF, "aud_spdf", NULL, 21),
++	GATE_AUD(CLK_AUDIO_ADC, "aud_adc", "audio_sel", 24),
++	GATE_AUD(CLK_AUDIO_DAC, "aud_dac", "audio_sel", 25),
++	GATE_AUD(CLK_AUDIO_DAC_PREDIS, "aud_dac_predis", "audio_sel", 26),
++	GATE_AUD(CLK_AUDIO_TML, "aud_tml", "audio_sel", 27),
++};
++
++#define AUD_DIV_GATE(_id, _name, _parent, _div_shift, _gate_shift)	\
++	DIV_GATE(_id, _name, _parent, AUDIO_CLK_AUDDIV_0, _gate_shift,	\
++		 AUDIO_CLK_AUDDIV_0, 3 /* div_width */, _div_shift)
++
++#define AUD_MUX_DIV(_id, _name, _mux_shift, _div_shift, _gate_shift)	\
++	MUX_DIV_GATE_FLAGS(_id, _name, apll_div_parents, AUDIO_CLK_AUDDIV_0,	\
++		_mux_shift, 1 /* mux_width */, AUDIO_CLK_AUDDIV_1,	\
++		_div_shift, 8 /* div_width */, AUDIO_CLK_AUDDIV_0,	\
++		_gate_shift, 0)
++
++static const struct mtk_composite aud_divs[] = {
++	AUD_DIV_GATE(CLK_AUDIO_APLL1_DIV0, "aud_apll1_div0", "aud_1_sel", 24, 0),
++	AUD_DIV_GATE(CLK_AUDIO_APLL2_DIV0, "aud_apll2_div0", "aud_2_sel", 28, 1),
++	AUD_MUX_DIV(CLK_AUDIO_APLL_I2S0, "aud_apll_i2s0", 8, 0, 2),
++	AUD_MUX_DIV(CLK_AUDIO_APLL_I2S1, "aud_apll_i2s1", 9, 8, 3),
++	AUD_MUX_DIV(CLK_AUDIO_APLL_I2S2, "aud_apll_i2s2", 10, 16, 4),
++	AUD_MUX_DIV(CLK_AUDIO_APLL_I2S3, "aud_apll_i2s3", 11, 24, 5),
++};
++
++static const struct mtk_clk_desc aud_desc = {
++	.clks = aud_clks,
++	.num_clks = ARRAY_SIZE(aud_clks),
++	.composite_clks = aud_divs,
++	.num_composite_clks = ARRAY_SIZE(aud_divs),
++};
++
++static int clk_mt8163_audio_probe(struct platform_device *pdev)
++{
++	int ret;
++
++	ret = mtk_clk_simple_probe(pdev);
++	if (ret)
++		return ret;
++
++	ret = devm_of_platform_populate(&pdev->dev);
++	if (ret)
++		mtk_clk_simple_remove(pdev);
++
++	return ret;
++}
++
++static void clk_mt8163_audio_remove(struct platform_device *pdev)
++{
++	of_platform_depopulate(&pdev->dev);
++	mtk_clk_simple_remove(pdev);
++}
++
++static const struct of_device_id of_match_clk_mt8163_audsys[] = {
++	{ .compatible = "mediatek,mt8163-audsys", .data = &aud_desc },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_audsys);
++
++static struct platform_driver clk_mt8163_audsys_drv = {
++	.probe = clk_mt8163_audio_probe,
++	.remove = clk_mt8163_audio_remove,
++	.driver = {
++		.name = "clk-mt8163-audsys",
++		.of_match_table = of_match_clk_mt8163_audsys,
++	},
++};
++module_platform_driver(clk_mt8163_audsys_drv);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 audiosys clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-imgsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-imgsys.c
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-gate.h"
++#include "clk-mtk.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-imgsys.h>
++
++static const struct mtk_gate_regs img_cg_regs = {
++	.set_ofs = 0x0004,
++	.clr_ofs = 0x0008,
++	.sta_ofs = 0x0000,
++};
++
++#define GATE_IMG(_id, _name, _parent, _shift)			\
++	GATE_MTK(_id, _name, _parent, &img_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++static const struct mtk_gate img_clks[] = {
++	GATE_IMG(CLK_IMG_LARB2_SMI, "img_larb2_smi", "mm_sel", 0),
++	GATE_IMG(CLK_IMG_JPGENC, "img_jpgenc", "mm_sel", 4),
++	GATE_IMG(CLK_IMG_CAM_SMI, "img_cam_smi", "mm_sel", 5),
++	GATE_IMG(CLK_IMG_CAM_CAM, "img_cam_cam", "mm_sel", 6),
++	GATE_IMG(CLK_IMG_SEN_TG, "img_sen_tg", "camtg_sel", 7),
++	GATE_IMG(CLK_IMG_SEN_CAM, "img_sen_cam", "mm_sel", 8),
++	GATE_IMG(CLK_IMG_CAM_SV, "img_cam_sv", "mm_sel", 9),
++};
++
++static const struct mtk_clk_desc img_desc = {
++	.clks = img_clks,
++	.num_clks = ARRAY_SIZE(img_clks),
++};
++
++static const struct of_device_id of_match_clk_mt8163_imgsys[] = {
++	{ .compatible = "mediatek,mt8163-imgsys", .data = &img_desc },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_imgsys);
++
++static struct platform_driver clk_mt8163_imgsys_drv = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt8163-imgsys",
++		.of_match_table = of_match_clk_mt8163_imgsys,
++	},
++};
++module_platform_driver(clk_mt8163_imgsys_drv);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 imgsys clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-infracfg.c
++++ b/drivers/clk/mediatek/clk-mt8163-infracfg.c
+@@ -0,0 +1,292 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2015 MediaTek Inc.
++ *         James Liao <jamesjj.liao@mediatek.com>
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-cpumux.h"
++#include "clk-gate.h"
++#include "clk-mtk.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-infracfg.h>
++#include <dt-bindings/reset/mediatek,mt8163-infracfg.h>
++
++#define RST_NR_PER_BANK			32
++
++static DEFINE_SPINLOCK(mt8163_peri_clk_lock);
++
++static const struct mtk_gate_regs infra0_cg_regs = {
++	.set_ofs = 0x0080,
++	.clr_ofs = 0x0084,
++	.sta_ofs = 0x0090,
++};
++
++static const struct mtk_gate_regs infra1_cg_regs = {
++	.set_ofs = 0x0088,
++	.clr_ofs = 0x008c,
++	.sta_ofs = 0x0094,
++};
++
++#define GATE_ICG0(_id, _name, _parent, _shift)								\
++	GATE_MTK(_id, _name, _parent, &infra0_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++#define GATE_ICG0_FLAGS(_id, _name, _parent, _shift, _flags)				\
++	GATE_MTK_FLAGS(_id, _name, _parent, &infra0_cg_regs, _shift,			\
++		       &mtk_clk_gate_ops_setclr, _flags)
++
++#define GATE_ICG1(_id, _name, _parent, _shift)								\
++	GATE_MTK(_id, _name, _parent, &infra1_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++#define GATE_ICG1_FLAGS(_id, _name, _parent, _shift, _flags)				\
++	GATE_MTK_FLAGS(_id, _name, _parent, &infra1_cg_regs, _shift,			\
++		       &mtk_clk_gate_ops_setclr, _flags)
++
++static const struct mtk_gate infracfg_gates[] = {
++	/* INFRA0 */
++	GATE_ICG0(CLK_INFRA_PMIC_TMR, "infra_pmic_tmr", "clk26m", 0),
++	GATE_ICG0(CLK_INFRA_PMIC_AP, "infra_pmic_ap", "clk26m", 1),
++	GATE_ICG0(CLK_INFRA_PMIC_MD, "infra_pmic_md", "clk26m", 2),
++	GATE_ICG0(CLK_INFRA_PMIC_CONN, "infra_pmic_conn", "clk26m", 3),
++	GATE_ICG0(CLK_INFRA_SCPSYS, "infra_scpsys", "scp_sel", 4),
++	GATE_ICG0(CLK_INFRA_SEJ, "infra_sej", "axi_sel", 5),
++	GATE_ICG0_FLAGS(CLK_INFRA_APXGPT, "infra_apxgpt", "axi_sel",
++		  6, CLK_IS_CRITICAL),
++	GATE_ICG0(CLK_INFRA_USB, "infra_usb", "axi_sel", 7),
++	GATE_ICG0(CLK_INFRA_ICUSB, "infra_icusb", "axi_sel", 8),
++	GATE_ICG0(CLK_INFRA_GCE, "infra_gce", "axi_sel", 9),
++	GATE_ICG0(CLK_INFRA_THERM, "infra_therm", "axi_sel", 10),
++	GATE_ICG0(CLK_INFRA_I2C0, "infra_i2c0", "axi_sel", 11),
++	GATE_ICG0(CLK_INFRA_I2C1, "infra_i2c1", "axi_sel", 12),
++	GATE_ICG0(CLK_INFRA_I2C2, "infra_i2c2", "axi_sel", 13),
++	GATE_ICG0(CLK_INFRA_PWM_HCLK, "infra_pwm_hclk", "axi_sel", 15),
++	GATE_ICG0(CLK_INFRA_PWM1, "infra_pwm1", "axi_sel", 16),
++	GATE_ICG0(CLK_INFRA_PWM2, "infra_pwm2", "axi_sel", 17),
++	GATE_ICG0(CLK_INFRA_PWM3, "infra_pwm3", "axi_sel", 18),
++	GATE_ICG0(CLK_INFRA_PWM, "infra_pwm", "axi_sel", 21),
++	GATE_ICG0(CLK_INFRA_UART0, "infra_uart0", "uart_sel", 22),
++	GATE_ICG0(CLK_INFRA_UART1, "infra_uart1", "uart_sel", 23),
++	GATE_ICG0(CLK_INFRA_UART2, "infra_uart2", "uart_sel", 24),
++	GATE_ICG0(CLK_INFRA_UART3, "infra_uart3", "uart_sel", 25),
++	GATE_ICG0(CLK_INFRA_USB_MCU, "infra_usb_mcu", "axi_sel", 26),
++	GATE_ICG0(CLK_INFRA_NFI_ECC_66M, "infra_nfi_ecc66", "axi_sel", 27),
++	GATE_ICG0(CLK_INFRA_NFI_66M, "infra_nfi_66m", "axi_sel", 28),
++	GATE_ICG0(CLK_INFRA_BTIF, "infra_btif", "axi_sel", 31),
++
++	/* INFRA1 */
++	GATE_ICG1(CLK_INFRA_SPI, "infra_spi", "spi_sel", 1),
++	GATE_ICG1(CLK_INFRA_MSDC3, "infra_msdc3", "msdc50_3_sel", 2),
++	GATE_ICG1(CLK_INFRA_MSDC1, "infra_msdc1", "msdc30_1_sel", 4),
++	GATE_ICG1(CLK_INFRA_MSDC2, "infra_msdc2", "msdc30_2_sel", 5),
++	GATE_ICG1(CLK_INFRA_MSDC0, "infra_msdc0", "msdc30_0_sel", 6),
++	GATE_ICG1(CLK_INFRA_GCPU, "infra_gcpu", "axi_sel", 8),
++	GATE_ICG1(CLK_INFRA_TRNG, "infra_trng", "axi_sel", 9),
++	GATE_ICG1(CLK_INFRA_AUXADC, "infra_auxadc", "clk26m", 10),
++	GATE_ICG1(CLK_INFRA_CPUM, "infra_cpum", "axi_sel", 11),
++	GATE_ICG1(CLK_INFRA_IRRX, "infra_irrx", "rtc_sel", 12),
++	GATE_ICG1(CLK_INFRA_UFO, "infra_ufo", "axi_sel", 13),
++	GATE_ICG1(CLK_INFRA_CEC, "infra_cec", "rtc_sel", 14),
++	GATE_ICG1(CLK_INFRA_CEC_26M, "infra_cec_26m", "clk26m", 15),
++	GATE_ICG1(CLK_INFRA_NFI_BCLK, "infra_nfi_bclk", "spi_sel", 16),
++	GATE_ICG1(CLK_INFRA_NFI_ECC, "infra_nfi_ecc", "spi_sel", 17),
++	GATE_ICG1(CLK_INFRA_AP_DMA, "infra_ap_dma", "axi_sel", 18),
++	GATE_ICG1(CLK_INFRA_XIU, "infra_xiu", "axi_sel", 19),
++	GATE_ICG1(CLK_INFRA_DEVICE_APC, "infra_devapc", "axi_sel", 20),
++	GATE_ICG1(CLK_INFRA_XIU2AHB, "infra_xiu2ahb", "axi_sel", 21),
++	GATE_ICG1(CLK_INFRA_L2C_SRAM, "infra_l2c_sram", "axi_sel", 22),
++	GATE_ICG1(CLK_INFRA_ETH_50M, "infra_eth_50m", "eth_sel", 23),
++	GATE_ICG1(CLK_INFRA_DEBUGSYS, "infra_debugsys", "axi_sel", 24),
++	GATE_ICG1(CLK_INFRA_AUDIO, "infra_audio", "axi_sel", 25),
++	GATE_ICG1(CLK_INFRA_ETH_25M, "infra_eth_25m", "eth_sel", 26),
++	GATE_ICG1(CLK_INFRA_NFI, "infra_nfi", "axi_sel", 27),
++	GATE_ICG1(CLK_INFRA_ONFI, "infra_onfi", "onfi_sel", 28),
++	GATE_ICG1(CLK_INFRA_SNFI, "infra_snfi", "snfi_sel", 29),
++	GATE_ICG1(CLK_INFRA_ETH, "infra_eth", "axi_sel", 30),
++	GATE_ICG1_FLAGS(CLK_INFRA_DRAMC_F26M, "infra_dramc_26m", "clk26m",
++		  31, CLK_IS_CRITICAL),
++};
++
++static const struct mtk_fixed_factor infra_divs[] = {
++	FACTOR(CLK_INFRA_OSC, "osc_ck", "clk26m", 8, 1),
++	FACTOR(CLK_INFRA_OSC_D8, "osc_d8", "osc_ck", 1, 8),
++	FACTOR(CLK_INFRA_OSC_D16, "osc_d16", "osc_ck", 1, 16),
++	FACTOR(CLK_INFRA_CLK26M_D8, "clk26m_d8", "clk26m", 1, 8),
++	FACTOR(CLK_INFRA_ETH_D2, "eth_d2", "eth_sel", 1, 2),
++	FACTOR(CLK_INFRA_ONFI_D2, "onfi_d2", "onfi_sel", 1, 2),
++};
++
++static const char * const infra_uart_parents[] = {
++	"clk26m",
++	"uart_sel"
++};
++
++static const char * const infra_spi_parents[] = {
++	"axi_sel",
++	"spi_sel"
++};
++
++static const char * const infra_dramc_parents[] = {
++	"clk26m",
++	"clk26m_d8"
++};
++
++static const char * const infra_ulp_parents[] = {
++	"osc_d8",
++	"osc_d16"
++};
++
++static const char * const infra_eth_parents[] = {
++	"eth_d2",
++	"eth_sel"
++};
++
++static const char * const infra_nfi_parents[] = {
++	"axi_sel",
++	"onfi_d2"
++};
++
++static const char * const infra_ca53_parents[] = {
++	"clk26m",
++	"armpll",
++	"arm_div_pll1_en",
++	"arm_div_pll2_en",
++};
++
++static const struct mtk_composite infracfg_muxes[] = {
++	MUX(CLK_INFRA_UART0_SEL, "infra_uart0_sel", infra_uart_parents, 0x098, 0, 1),
++	MUX(CLK_INFRA_UART1_SEL, "infra_uart1_sel", infra_uart_parents, 0x098, 1, 1),
++	MUX(CLK_INFRA_UART2_SEL, "infra_uart2_sel", infra_uart_parents, 0x098, 2, 1),
++	MUX(CLK_INFRA_UART3_SEL, "infra_uart3_sel", infra_uart_parents, 0x098, 3, 1),
++	MUX(CLK_INFRA_SPI_SEL, "infra_spi_sel", infra_spi_parents, 0x098, 4, 1),
++	MUX(CLK_INFRA_DRAMC_SEL, "infra_dramc_sel", infra_dramc_parents, 0x098, 7, 1),
++	MUX(CLK_INFRA_ULPOSC_SEL, "infra_ulp_sel", infra_ulp_parents, 0x098, 8, 1),
++	MUX(CLK_INFRA_ETH_25M_SEL, "infra_eth_sel", infra_eth_parents, 0x098, 9, 1),
++	MUX(CLK_INFRA_NFI_SEL, "infra_nfi_sel", infra_nfi_parents, 0x098, 10, 1),
++};
++
++static const struct mtk_composite cpu_muxes[] = {
++	MUX(CLK_INFRA_CA53SEL, "infra_ca53_sel", infra_ca53_parents, 0x0000, 0, 2),
++};
++
++static u16 infracfg_rst_bank_ofs[] = { 0x120, 0x140 };
++
++static u16 infracfg_rst_idx_map[] = {
++	/* INFRA_GLOBALCON_RST_0 */
++	[MT8163_INFRA_RST0_THERM_CTRL]		= 0 * RST_NR_PER_BANK + 0,
++	[MT8163_INFRA_RST0_USB_TOP]			= 0 * RST_NR_PER_BANK + 1,
++	[MT8163_INFRA_RST0_PERI_IOMMU]		= 0 * RST_NR_PER_BANK + 2,
++	[MT8163_INFRA_RST0_MM_IOMMU]		= 0 * RST_NR_PER_BANK + 3,
++	[MT8163_INFRA_RST0_MSDC3]			= 0 * RST_NR_PER_BANK + 4,
++	[MT8163_INFRA_RST0_MSDC2]			= 0 * RST_NR_PER_BANK + 5,
++	[MT8163_INFRA_RST0_MSDC1]			= 0 * RST_NR_PER_BANK + 6,
++	[MT8163_INFRA_RST0_MSDC0]			= 0 * RST_NR_PER_BANK + 7,
++	[MT8163_INFRA_RST0_DRAMC]			= 0 * RST_NR_PER_BANK + 8,
++	[MT8163_INFRA_RST0_AP_DMA]			= 0 * RST_NR_PER_BANK + 9,
++	[MT8163_INFRA_RST0_MIPI_D]			= 0 * RST_NR_PER_BANK + 10,
++	[MT8163_INFRA_RST0_MIPI_C]			= 0 * RST_NR_PER_BANK + 11,
++	[MT8163_INFRA_RST0_BTIF]			= 0 * RST_NR_PER_BANK + 12,
++
++	/* INFRA_GLOBALCON_RST_1 */
++	[MT8163_INFRA_RST1_PMIC_WRAP]		= 1 * RST_NR_PER_BANK + 0,
++	[MT8163_INFRA_RST1_SPM]				= 1 * RST_NR_PER_BANK + 1,
++	[MT8163_INFRA_RST1_USBSIF]			= 1 * RST_NR_PER_BANK + 2,
++	[MT8163_INFRA_RST1_SCP]				= 1 * RST_NR_PER_BANK + 3,
++	[MT8163_INFRA_RST1_CEC]				= 1 * RST_NR_PER_BANK + 4,
++	[MT8163_INFRA_RST1_IRRX]			= 1 * RST_NR_PER_BANK + 5,
++};
++
++static const struct mtk_clk_rst_desc clk_rst_desc = {
++	.version = MTK_RST_SET_CLR,
++	.rst_bank_ofs = infracfg_rst_bank_ofs,
++	.rst_bank_nr = ARRAY_SIZE(infracfg_rst_bank_ofs),
++	.rst_idx_map = infracfg_rst_idx_map,
++	.rst_idx_map_nr = ARRAY_SIZE(infracfg_rst_idx_map)
++};
++
++static int clk_mt8163_infracfg_probe(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *clk_data;
++	struct device_node *node = pdev->dev.of_node;
++	void __iomem *base;
++	int ret;
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++
++	clk_data = mtk_alloc_clk_data(CLK_INFRA_NR_CLK);
++	if (!clk_data)
++		return -ENOMEM;
++
++	ret = mtk_register_reset_controller_with_dev(&pdev->dev, &clk_rst_desc);
++	if (ret)
++		goto free_clk_data;
++
++	ret = mtk_clk_register_gates(&pdev->dev, node, infracfg_gates,
++					  ARRAY_SIZE(infracfg_gates), clk_data);
++	if (ret)
++		goto free_clk_data;
++
++	ret = mtk_clk_register_composites(&pdev->dev, infracfg_muxes,
++					  ARRAY_SIZE(infracfg_muxes), base,
++					  &mt8163_peri_clk_lock, clk_data);
++	if (ret)
++		goto unregister_gates;
++
++	ret = mtk_clk_register_cpumuxes(&pdev->dev, node, cpu_muxes,
++					  ARRAY_SIZE(cpu_muxes), clk_data);
++	if (ret)
++		goto unregister_composites;
++
++	ret = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, clk_data);
++	if (ret)
++		goto unregister_cpumuxes;
++
++	return 0;
++
++unregister_cpumuxes:
++	mtk_clk_unregister_cpumuxes(cpu_muxes, ARRAY_SIZE(cpu_muxes), clk_data);
++unregister_composites:
++	mtk_clk_unregister_composites(infracfg_muxes, ARRAY_SIZE(infracfg_muxes), clk_data);
++unregister_gates:
++	mtk_clk_unregister_gates(infracfg_gates, ARRAY_SIZE(infracfg_gates), clk_data);
++free_clk_data:
++	mtk_free_clk_data(clk_data);
++	return ret;
++}
++
++static void clk_mt8163_infracfg_remove(struct platform_device *pdev)
++{
++	struct device_node *node = pdev->dev.of_node;
++	struct clk_hw_onecell_data *clk_data = platform_get_drvdata(pdev);
++
++	of_clk_del_provider(node);
++	mtk_clk_unregister_cpumuxes(cpu_muxes, ARRAY_SIZE(cpu_muxes), clk_data);
++	mtk_clk_unregister_composites(infracfg_muxes, ARRAY_SIZE(infracfg_muxes), clk_data);
++	mtk_clk_unregister_gates(infracfg_gates, ARRAY_SIZE(infracfg_gates), clk_data);
++	mtk_free_clk_data(clk_data);
++}
++
++static const struct of_device_id of_match_clk_mt8163_infracfg[] = {
++	{ .compatible = "mediatek,mt8163-infracfg" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_infracfg);
++
++static struct platform_driver clk_mt8163_infracfg_drv = {
++	.driver = {
++		.name = "clk-mt8163-infracfg",
++		.of_match_table = of_match_clk_mt8163_infracfg,
++	},
++	.probe = clk_mt8163_infracfg_probe,
++	.remove = clk_mt8163_infracfg_remove,
++};
++module_platform_driver(clk_mt8163_infracfg_drv);
++
++MODULE_AUTHOR("James Liao <jamesjj.liao@mediatek.com>");
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 infracfg clock driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-mfgcfg.c
++++ b/drivers/clk/mediatek/clk-mt8163-mfgcfg.c
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-gate.h"
++#include "clk-mtk.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-mfgcfg.h>
++
++static const struct mtk_gate_regs mfgcfg_cg_regs = {
++	.set_ofs = 0x0004,
++	.clr_ofs = 0x0008,
++	.sta_ofs = 0x0000,
++};
++
++#define GATE_MFG(_id, _name, _parent, _shift)			\
++	GATE_MTK(_id, _name, _parent, &mfgcfg_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++static const struct mtk_gate mfgcfg_gates[] = {
++	GATE_MFG(CLK_MFG_BG3D, "mfg_bg3d", "mfg_sel", 0),
++};
++
++static const struct mtk_clk_desc mfgcfg_clks = {
++	.clks = mfgcfg_gates,
++	.num_clks = ARRAY_SIZE(mfgcfg_gates),
++};
++
++static const struct of_device_id of_match_mt8163_mfgcfg[] = {
++	{ .compatible = "mediatek,mt8163-mfgcfg", .data = &mfgcfg_clks },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_mt8163_mfgcfg);
++
++static struct platform_driver clk_mt8163_mfgcfg = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt8163-mfgcfg",
++		.of_match_table = of_match_mt8163_mfgcfg,
++	},
++};
++module_platform_driver(clk_mt8163_mfgcfg);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("Mediatek MT8163 mfgcfg clock driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-mmsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-mmsys.c
+@@ -0,0 +1,109 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-mtk.h"
++#include "clk-gate.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-mmsys.h>
++
++static const struct mtk_gate_regs mm0_cg_regs = {
++	.set_ofs = 0x0104,
++	.clr_ofs = 0x0108,
++	.sta_ofs = 0x0100,
++};
++
++static const struct mtk_gate_regs mm1_cg_regs = {
++	.set_ofs = 0x0114,
++	.clr_ofs = 0x0118,
++	.sta_ofs = 0x0110,
++};
++
++#define GATE_MM0(_id, _name, _parent, _shift)	\
++	GATE_MTK(_id, _name, _parent, &mm0_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++#define GATE_MM1(_id, _name, _parent, _shift)	\
++	GATE_MTK(_id, _name, _parent, &mm1_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++
++static const struct mtk_gate mm_clks[] = {
++	/* MM0 */
++	GATE_MM0(CLK_MM_SMI_COMMON, "mm_smi_common", "mm_sel", 0),
++	GATE_MM0(CLK_MM_SMI_LARB0, "mm_smi_larb0", "mm_sel", 1),
++	GATE_MM0(CLK_MM_CAM_MDP, "mm_cam_mdp", "mm_sel", 2),
++	GATE_MM0(CLK_MM_MDP_RDMA, "mm_mdp_rdma", "mm_sel", 3),
++	GATE_MM0(CLK_MM_MDP_RSZ0, "mm_mdp_rsz0", "mm_sel", 4),
++	GATE_MM0(CLK_MM_MDP_RSZ1, "mm_mdp_rsz1", "mm_sel", 5),
++	GATE_MM0(CLK_MM_MDP_TDSHP, "mm_mdp_tdshp", "mm_sel", 6),
++	GATE_MM0(CLK_MM_MDP_WDMA, "mm_mdp_wdma", "mm_sel", 7),
++	GATE_MM0(CLK_MM_MDP_WROT, "mm_mdp_wrot", "mm_sel", 8),
++	GATE_MM0(CLK_MM_FAKE_ENG, "mm_fake_eng", "mm_sel", 9),
++	GATE_MM0(CLK_MM_DISP_OVL0, "mm_disp_ovl0", "mm_sel", 10),
++	GATE_MM0(CLK_MM_DISP_OVL1, "mm_disp_ovl1", "mm_sel", 11),
++	GATE_MM0(CLK_MM_DISP_RDMA0, "mm_disp_rdma0", "mm_sel", 12),
++	GATE_MM0(CLK_MM_DISP_RDMA1, "mm_disp_rdma1", "mm_sel", 13),
++	GATE_MM0(CLK_MM_DISP_WDMA0, "mm_disp_wdma0", "rtc_sel", 14),
++	GATE_MM0(CLK_MM_DISP_COLOR, "mm_disp_color", "mm_sel", 15),
++	GATE_MM0(CLK_MM_DISP_CCORR, "mm_disp_ccorr", "mm_sel", 16),
++	GATE_MM0(CLK_MM_DISP_AAL, "mm_disp_aal", "mm_sel", 17),
++	GATE_MM0(CLK_MM_DISP_GAMMA, "mm_disp_gamma", "mm_sel", 18),
++	GATE_MM0(CLK_MM_DISP_DITHER, "mm_disp_dither", "mm_sel", 19),
++	GATE_MM0(CLK_MM_DISP_UFOE, "mm_disp_ufoe", "mm_sel", 20),
++	GATE_MM0(CLK_MM_LARB4_AXI_ASIF_MM, "mm_larb4_mm", "mm_sel", 21),
++	GATE_MM0(CLK_MM_LARB4_AXI_ASIF_MJC, "mm_larb4_mjc", "mm_sel", 22),
++	GATE_MM0(CLK_MM_DISP_WDMA1, "mm_disp_wdma1", "mm_sel", 23),
++	GATE_MM0(CLK_MM_UFOD_RDMA0_L0, "mm_ufodrdma0_l0", "mm_sel", 24),
++	GATE_MM0(CLK_MM_UFOD_RDMA0_L1, "mm_ufodrdma0_l1", "mm_sel", 25),
++	GATE_MM0(CLK_MM_UFOD_RDMA0_L2, "mm_ufodrdma0_l2", "mm_sel", 26),
++	GATE_MM0(CLK_MM_UFOD_RDMA0_L3, "mm_ufodrdma0_l3", "mm_sel", 27),
++	GATE_MM0(CLK_MM_UFOD_RDMA1_L0, "mm_ufodrdma1_l0", "mm_sel", 28),
++	GATE_MM0(CLK_MM_UFOD_RDMA1_L1, "mm_ufodrdma1_l1", "mm_sel", 29),
++	GATE_MM0(CLK_MM_UFOD_RDMA1_L2, "mm_ufodrdma1_l2", "mm_sel", 30),
++	GATE_MM0(CLK_MM_UFOD_RDMA1_L3, "mm_ufodrdma1_l3", "mm_sel", 31),
++
++	/* MM1 */
++	GATE_MM1(CLK_MM_DISP_PWM_MM, "mm_disp_pwm0mm", "mm_sel", 0),
++	GATE_MM1(CLK_MM_DISP_PWM_26M, "mm_disp_pwm026m", "clk26m", 1),
++	GATE_MM1(CLK_MM_DSI_ENGINE, "mm_dsi0_engine", "mm_sel", 2),
++	GATE_MM1(CLK_MM_DSI_DIGITAL, "mm_dsi0_digital", "dsi0_lntc_dsick", 3),
++	GATE_MM1(CLK_MM_DPI0_PIXEL, "mm_dpi_pixel", "mm_sel", 4),
++	GATE_MM1(CLK_MM_DPI0_ENGINE, "mm_dpi_engine", "dpi0_sel", 5),
++	GATE_MM1(CLK_MM_LVDS_PIXEL, "mm_lvds_pixel", "dpi0_sel", 6),
++	GATE_MM1(CLK_MM_LVDS_CTS, "mm_lvds_cts", "lvdstx_dig_cts", 7),
++	GATE_MM1(CLK_MM_DPI1_PIXEL, "mm_dpi1_pixel", "mm_sel", 8),
++	GATE_MM1(CLK_MM_DPI1_ENGINE, "mm_dpi1_engine", "dpi1_sel", 9),
++	GATE_MM1(CLK_MM_HDMI_PIXEL, "mm_hdmi_pixel", "dpi1_sel", 10),
++	GATE_MM1(CLK_MM_HDMI_SPDIF, "mm_hdmi_spdif", "apll2_div1", 11),
++	GATE_MM1(CLK_MM_HDMI_ADSP, "mm_hdmi_audio", "apll2_div0", 12),
++	GATE_MM1(CLK_MM_HDMI_PLLCK, "mm_hdmi_pllck", "hdmi_sel", 13),
++	GATE_MM1(CLK_MM_DISP_DSC_ENGINE, "mm_disp_dsc_eng", "mm_sel", 14),
++	GATE_MM1(CLK_MM_DISP_DSC_MEM, "mm_disp_dsc_mem", "mm_sel", 15),
++};
++
++static const struct mtk_clk_desc mm_desc = {
++	.clks = mm_clks,
++	.num_clks = ARRAY_SIZE(mm_clks),
++};
++
++static const struct platform_device_id clk_mt8163_mm_id_table[] = {
++	{ .name = "clk-mt8163-mm", .driver_data = (kernel_ulong_t)&mm_desc },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(platform, clk_mt8163_mm_id_table);
++
++static struct platform_driver clk_mt8163_mm_drv = {
++	.probe = mtk_clk_pdev_probe,
++	.remove = mtk_clk_pdev_remove,
++	.driver = {
++		.name = "clk-mt8163-mmsys",
++	},
++	.id_table = clk_mt8163_mm_id_table,
++};
++module_platform_driver(clk_mt8163_mm_drv);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 mmsys clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-topckgen.c
++++ b/drivers/clk/mediatek/clk-mt8163-topckgen.c
+@@ -0,0 +1,468 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2015 MediaTek Inc.
++ *         James Liao <jamesjj.liao@mediatek.com>
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-mtk.h"
++#include "clk-gate.h"
++#include "clk-mux.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-topckgen.h>
++
++static DEFINE_SPINLOCK(mt8163_topckgen_lock);
++
++static const struct mtk_fixed_clk topckgen_fixed_clks[] = {
++	FIXED_CLK(CLK_TOP_DMPLL, "dmpll_ck", NULL, 0),
++	FIXED_CLK(CLK_TOP_DSI0_LNTC_DSICK, "dsi0_lntc_dsick", "clk26m", 75 * MHZ),
++	FIXED_CLK(CLK_TOP_F26M_MEM_CKGEN_OCC, "f26m_mem_ckgen", "clk26m", 26 * MHZ),
++	FIXED_CLK(CLK_TOP_LVDSTX_CLKDIG_CTS, "lvdstx_dig_cts", "clk26m", 52500000),
++};
++
++static const struct mtk_fixed_factor topckgen_factors[] = {
++	FACTOR(CLK_TOP_MAIN_H546M, "main_h546m", "mainpll", 1, 2),
++	FACTOR(CLK_TOP_MAIN_H364M, "main_h364m", "mainpll", 1, 3),
++	FACTOR(CLK_TOP_MAIN_H218P4M, "main_h218p4m", "mainpll", 1, 5),
++	FACTOR(CLK_TOP_MAIN_H156M, "main_h156m", "mainpll", 1, 7),
++
++	FACTOR(CLK_TOP_UNIV_624M, "univ_624m", "univpll", 1, 2),
++	FACTOR(CLK_TOP_UNIV_416M, "univ_416m", "univpll", 1, 3),
++	FACTOR(CLK_TOP_UNIV_249P6M, "univ_249p6m", "univpll", 1, 5),
++	FACTOR(CLK_TOP_UNIV_178P3M, "univ_178p3m", "univpll", 1, 7),
++	FACTOR(CLK_TOP_UNIV_48M, "univ_48m", "univpll", 1, 26),
++
++	FACTOR(CLK_TOP_CLKRTC_INT, "clkrtc_int", "clk26m", 1, 793),
++
++	FACTOR(CLK_TOP_HDMI_CTS, "hdmi_cts_ck", "hdmitx_dig_cts", 1, 2),
++	FACTOR(CLK_TOP_HDMI_CTS_D2, "hdmi_cts_d2", "hdmitx_dig_cts", 1, 3),
++	FACTOR(CLK_TOP_HDMI_CTS_D3, "hdmi_cts_d3", "hdmitx_dig_cts", 1, 2),
++
++	FACTOR(CLK_TOP_LVDSPLL_D2, "lvdspll_d2", "lvdspll", 1, 2),
++	FACTOR(CLK_TOP_LVDSPLL_D4, "lvdspll_d4", "lvdspll", 1, 4),
++	FACTOR(CLK_TOP_LVDSPLL_D8, "lvdspll_d8", "lvdspll", 1, 8),
++	FACTOR(CLK_TOP_LVDSPLL_ETH, "lvdspll_eth_ck", "lvdspll", 1, 4),
++
++	FACTOR(CLK_TOP_MSDCPLL_D2, "msdcpll_d2", "msdcpll", 1, 2),
++	FACTOR(CLK_TOP_MSDCPLL_D4, "msdcpll_d4", "msdcpll", 1, 4),
++
++	FACTOR(CLK_TOP_SYSPLL_D2P5, "syspll_d2p5", "main_h218p4m", 2, 1),
++	FACTOR(CLK_TOP_SYSPLL1_D2, "syspll1_d2", "main_h546m", 1, 2),
++	FACTOR(CLK_TOP_SYSPLL1_D4, "syspll1_d4", "main_h546m", 1, 4),
++	FACTOR(CLK_TOP_SYSPLL1_D8, "syspll1_d8", "main_h546m", 1, 8),
++	FACTOR(CLK_TOP_SYSPLL1_D16, "syspll1_d16", "main_h546m", 1, 16),
++	FACTOR(CLK_TOP_SYSPLL2_D2, "syspll2_d2", "main_h364m", 1, 2),
++	FACTOR(CLK_TOP_SYSPLL2_D4, "syspll2_d4", "main_h364m", 1, 4),
++	FACTOR(CLK_TOP_SYSPLL2_D8, "syspll2_d8", "main_h364m", 1, 8),
++	FACTOR(CLK_TOP_SYSPLL3_D2, "syspll3_d2", "main_h218p4m", 1, 2),
++	FACTOR(CLK_TOP_SYSPLL3_D4, "syspll3_d4", "main_h218p4m", 1, 4),
++	FACTOR(CLK_TOP_SYSPLL4_D2, "syspll4_d2", "main_h156m", 1, 2),
++	FACTOR(CLK_TOP_SYSPLL4_D4, "syspll4_d4", "main_h156m", 1, 4),
++
++	FACTOR(CLK_TOP_TVDPLL_D2, "tvdpll_d2", "tvdpll", 1, 2),
++	FACTOR(CLK_TOP_TVDPLL_D4, "tvdpll_d4", "tvdpll", 1, 4),
++	FACTOR(CLK_TOP_TVDPLL_D8, "tvdpll_d8", "tvdpll", 1, 8),
++	FACTOR(CLK_TOP_TVDPLL_D16, "tvdpll_d16", "tvdpll", 1, 16),
++
++	FACTOR(CLK_TOP_UNIVPLL_D2P5, "univpll_d2p5", "univ_249p6m", 2, 1),
++	FACTOR(CLK_TOP_UNIVPLL1_D2, "univpll1_d2", "univ_624m", 1, 2),
++	FACTOR(CLK_TOP_UNIVPLL1_D4, "univpll1_d4", "univ_624m", 1, 4),
++	FACTOR(CLK_TOP_UNIVPLL2_D2, "univpll2_d2", "univ_416m", 1, 2),
++	FACTOR(CLK_TOP_UNIVPLL2_D4, "univpll2_d4", "univ_416m", 1, 4),
++	FACTOR(CLK_TOP_UNIVPLL2_D8, "univpll2_d8", "univ_416m", 1, 8),
++	FACTOR(CLK_TOP_UNIVPLL3_D2, "univpll3_d2", "univ_249p6m", 1, 2),
++	FACTOR(CLK_TOP_UNIVPLL3_D4, "univpll3_d4", "univ_249p6m", 1, 4),
++	FACTOR(CLK_TOP_UNIVPLL3_D8, "univpll3_d8", "univ_249p6m", 1, 8),
++};
++
++static const char * const axi_parents[] = {
++	"clk26m",
++	"syspll1_d4"
++};
++
++static const char * const mem_parents[] = {
++	"clk26m",
++	"dmpll_ck",
++	"f26m_mem_ckgen"
++};
++
++static const char * const ddrphycfg_parents[] = {
++	"clk26m",
++	"syspll1_d8"
++};
++
++static const char * const mm_parents[] = {
++	"clk26m",
++	"main_h364m",
++	"univ_416m",
++	"vencpll"
++};
++
++static const char * const pwm_parents[] = {
++	"clk26m",
++	"univpll2_d2",
++	"univpll2_d4"
++};
++
++static const char * const vdec_parents[] = {
++	"clk26m",
++	"main_h364m",
++	"syspll1_d2",
++	"univpll1_d2",
++	"syspll1_d4"
++};
++
++static const char * const mfg_parents[] = {
++	"clk26m",
++	"mmpll",
++	"univ_416m",
++	"main_h364m"
++};
++
++static const char * const camtg_parents[] = {
++	"clk26m",
++	"univ_48m",
++	"univpll2_d2"
++};
++
++static const char * const uart_parents[] = {
++	"clk26m",
++	"univpll2_d8"
++};
++
++static const char * const spi_parents[] = {
++	"clk26m",
++	"syspll3_d2"
++};
++
++static const char * const msdc30_0_parents[] = {
++	"clk26m",
++	"univpll2_d2",
++	"msdcpll_d2",
++	"univpll1_d4",
++	"syspll2_d2",
++	"main_h156m",
++	"univ_178p3m"
++};
++
++static const char * const msdc30_1_parents[] = {
++	"clk26m",
++	"univpll2_d2",
++	"msdcpll_d2",
++	"univpll1_d4",
++	"syspll2_d2",
++	"main_h156m",
++	"univ_178p3m"
++};
++
++static const char * const msdc30_2_parents[] = {
++	"clk26m",
++	"univpll2_d2",
++	"msdcpll_d2",
++	"univpll1_d4",
++	"syspll2_d2",
++	"main_h156m",
++	"univ_178p3m"
++};
++
++static const char * const msdc50_3_h_parents[] = {
++	"clk26m",
++	"syspll1_d2",
++	"syspll2_d2",
++	"syspll4_d2"
++};
++
++static const char * const msdc50_3_parents[] = {
++	"clk26m",
++	"msdcpll",
++	"msdcpll_d2",
++	"univpll1_d4",
++	"syspll2_d2",
++	"main_h156m",
++	"msdcpll_d4",
++	"univ_624m",
++	"univpll1_d2"
++};
++
++static const char * const audio_parents[] = {
++	"clk26m",
++	"syspll3_d4",
++	"syspll4_d4",
++	"syspll1_d16"
++};
++
++static const char * const aud_intbus_parents[] = {
++	"clk26m",
++	"syspll1_d4",
++	"syspll4_d2"
++};
++
++static const char * const pmicspi_parents[] = {
++	"clk26m",
++	"univ_48m"
++};
++
++static const char * const scp_parents[] = {
++	"clk26m",
++	"mpll",
++	"syspll1_d4"
++};
++
++static const char * const atb_parents[] = {
++	"clk26m",
++	"syspll1_d2"
++};
++
++static const char * const mjc_parents[] = {
++	"clk26m",
++	"main_h218p4m",
++	"univ_249p6m"
++};
++
++static const char * const dpi0_parents[] = {
++	"clk26m",
++	"lvdspll",
++	"lvdspll_d2",
++	"lvdspll_d4",
++	"lvdspll_d8"
++};
++
++static const char * const scam_parents[] = {
++	"clk26m",
++	"syspll3_d2"
++};
++
++static const char * const aud_1_parents[] = {
++	"clk26m",
++	"aud1pll"
++};
++
++static const char * const aud_2_parents[] = {
++	"clk26m",
++	"aud2pll"
++};
++
++static const char * const dpi1_parents[] = {
++	"clk26m",
++	"tvdpll_d2",
++	"tvdpll_d4",
++	"tvdpll_d8",
++	"tvdpll_d16"
++};
++
++static const char * const ufoenc_parents[] = {
++	"clk26m",
++	"univ_624m",
++	"main_h546m",
++	"univpll_d2p5",
++	"syspll_d2p5",
++	"univ_416m",
++	"main_h364m",
++	"syspll1_d2"
++};
++
++static const char * const ufodec_parents[] = {
++	"clk26m",
++	"main_h546m",
++	"univpll_d2p5",
++	"syspll_d2p5",
++	"univ_416m",
++	"main_h364m",
++	"syspll1_d2"
++};
++
++static const char * const eth_parents[] = {
++	"clk26m",
++	"syspll3_d4",
++	"univpll2_d8",
++	"lvdspll_eth_ck",
++	"univ_48m",
++	"syspll2_d8",
++	"syspll4_d4",
++	"univpll3_d8",
++	"clk26m"
++};
++
++static const char * const onfi_parents[] = {
++	"clk26m",
++	"syspll2_d2",
++	"main_h156m",
++	"univpll3_d2",
++	"syspll2_d4",
++	"univpll3_d4",
++	"syspll4_d4"
++};
++
++static const char * const snfi_parents[] = {
++	"clk26m",
++	"univpll2_d8",
++	"univpll3_d4",
++	"syspll4_d2",
++	"univpll2_d4",
++	"univpll3_d2",
++	"syspll1_d4",
++	"univpll1_d4",
++	"clk26m"
++};
++
++static const char * const hdmi_parents[] = {
++	"clk26m",
++	"hdmi_cts_ck",
++	"hdmi_cts_d2",
++	"hdmi_cts_d3"
++};
++
++static const char * const rtc_parents[] = {
++	"clkrtc_int",
++	"clk32k",
++	"clk26m",
++	"univpll3_d8"
++};
++
++static const struct mtk_mux topckgen_muxes[] = {
++	/* CLK_CFG_0 */
++	MUX_GATE_UPD_FLAGS(CLK_TOP_AXI_SEL, "axi_sel", axi_parents,
++		0x0040, 0, 1, 7, 0x0004, 0,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_UPD_FLAGS(CLK_TOP_MEM_SEL, "mem_sel", mem_parents,
++		0x0040, 8, 2, 15, 0x0004, 1,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_UPD_FLAGS(CLK_TOP_DDRPHYCFG_SEL, "ddrphycfg_sel", ddrphycfg_parents,
++		0x0040, 16, 1, 23, 0x0004, 2,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_UPD(CLK_TOP_MM_SEL, "mm_sel", mm_parents,
++		0x0040, 24, 2, 31, 0x0004, 3),
++
++	/* CLK_CFG_1 */
++	MUX_GATE_UPD(CLK_TOP_PWM_SEL, "pwm_sel", pwm_parents,
++		0x0050, 0, 2, 7, 0x0004, 4),
++	MUX_GATE_UPD(CLK_TOP_VDEC_SEL, "vdec_sel", vdec_parents,
++		0x0050, 8, 3, 15, 0x0004, 5),
++	MUX_GATE_UPD(CLK_TOP_MFG_SEL, "mfg_sel", mfg_parents,
++		0x0050, 24, 2, 31, 0x0004, 7),
++
++	/* CLK_CFG_2 */
++	MUX_GATE_UPD(CLK_TOP_CAMTG_SEL, "camtg_sel", camtg_parents,
++		0x0060, 0, 2, 7, 0x0004, 8),
++	MUX_GATE_UPD(CLK_TOP_UART_SEL, "uart_sel", uart_parents,
++		0x0060, 8, 1, 15, 0x0004, 9),
++	MUX_GATE_UPD(CLK_TOP_SPI_SEL, "spi_sel", spi_parents,
++		0x0060, 16, 1, 23, 0x0004, 10),
++
++	/* CLK_CFG_3 */
++	MUX_GATE_UPD(CLK_TOP_MSDC30_0_SEL, "msdc30_0_sel", msdc30_0_parents,
++		0x0070, 0, 3, 7, 0x0004, 12),
++	MUX_GATE_UPD(CLK_TOP_MSDC30_1_SEL, "msdc30_1_sel", msdc30_1_parents,
++		0x0070, 8, 3, 15, 0x0004, 13),
++	MUX_GATE_UPD(CLK_TOP_MSDC30_2_SEL, "msdc30_2_sel", msdc30_2_parents,
++		0x0070, 16, 3, 23, 0x0004, 14),
++
++	/* CLK_CFG_4 */
++	MUX_GATE_UPD(CLK_TOP_MSDC50_3_HSEL, "msdc50_3_hsel", msdc50_3_h_parents,
++		0x0080, 0, 2, 7, 0x0004, 15),
++	MUX_GATE_UPD(CLK_TOP_MSDC50_3_SEL, "msdc50_3_sel", msdc50_3_parents,
++		0x0080, 8, 4, 15, 0x0004, 16),
++	MUX_GATE_UPD(CLK_TOP_AUDIO_SEL, "audio_sel", audio_parents,
++		0x0080, 16, 2, 23, 0x0004, 17),
++	MUX_GATE_UPD(CLK_TOP_AUD_INTBUS_SEL, "aud_intbus_sel", aud_intbus_parents,
++		0x0080, 24, 2, 31, 0x0004, 18),
++
++	/* CLK_CFG_5 */
++	MUX_GATE_UPD(CLK_TOP_PMICSPI_SEL, "pmicspi_sel", pmicspi_parents,
++		0x0090, 0, 1, 7, 0x0004, 19),
++	MUX_GATE_UPD(CLK_TOP_SCP_SEL, "scp_sel", scp_parents,
++		0x0090, 8, 2, 15, 0x0004, 20),
++	MUX_GATE_UPD(CLK_TOP_ATB_SEL, "atb_sel", atb_parents,
++		0x0090, 16, 1, 23, 0x0004, 21),
++	MUX_GATE_UPD(CLK_TOP_MJC_SEL, "mjc_sel", mjc_parents,
++		0x0090, 24, 2, 31, 0x0004, 22),
++
++	/* CLK_CFG_6 */
++	/*
++	 * The dpi0_sel clock should not propagate rate changes to its parent
++	 * clock so the dpi driver can have full control over PLL and divider.
++	 */
++	MUX_GATE_UPD_FLAGS(CLK_TOP_DPI0_SEL, "dpi0_sel", dpi0_parents,
++		0x00a0, 0, 3, 7, 0x0004, 23,
++		0),
++	MUX_GATE_UPD(CLK_TOP_SCAM_SEL, "scam_sel", scam_parents,
++		0x00a0, 8, 1, 15, 0x0004, 24),
++	MUX_GATE_UPD(CLK_TOP_AUD_1_SEL, "aud_1_sel", aud_1_parents,
++		0x00a0, 16, 1, 23, 0x0004, 25),
++	MUX_GATE_UPD(CLK_TOP_AUD_2_SEL, "aud_2_sel", aud_2_parents,
++		0x00a0, 24, 1, 31, 0x0004, 26),
++
++	/* CLK_CFG_7 */
++	MUX_GATE_UPD(CLK_TOP_DPI1_SEL, "dpi1_sel", dpi1_parents,
++		0x00b0, 0, 3, 7, 0x0004, 6),
++	MUX_GATE_UPD(CLK_TOP_UFOENC_SEL, "ufoenc_sel", ufoenc_parents,
++		0x00b0, 8, 3, 15, 0x0004, 27),
++	MUX_GATE_UPD(CLK_TOP_UFODEC_SEL, "ufodec_sel", ufodec_parents,
++		0x00b0, 16, 3, 23, 0x0004, 28),
++	MUX_GATE_UPD(CLK_TOP_ETH_SEL, "eth_sel", eth_parents,
++		0x00b0, 24, 4, 31, 0x0004, 29),
++
++	/* CLK_CFG_8 */
++	MUX_GATE_UPD(CLK_TOP_ONFI_SEL, "onfi_sel", onfi_parents,
++		0x00c0, 0, 3, 7, 0x0004, 30),
++	MUX_GATE_UPD(CLK_TOP_SNFI_SEL, "snfi_sel", snfi_parents,
++		0x00c0, 8, 2, 15, 0x0004, 31),
++	MUX_GATE_UPD(CLK_TOP_HDMI_SEL, "hdmi_sel", hdmi_parents,
++		0x00c0, 16, 2, 23, 0x0004, 11),
++	MUX_GATE_UPD_FLAGS(CLK_TOP_RTC_SEL, "rtc_sel", rtc_parents,
++		0x00c0, 24, 2, 31, 0x0008, 0,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++};
++
++static const struct mtk_gate_regs top_cg_regs = {
++	.set_ofs = 0x104,
++	.clr_ofs = 0x104,
++	.sta_ofs = 0x104,
++};
++
++#define GATE_TOP(_id, _name, _parent, _shift)				\
++	GATE_MTK(_id, _name, _parent, &top_cg_regs, _shift, &mtk_clk_gate_ops_no_setclr_inv)
++
++static const struct mtk_gate topckgen_gates[] = {
++	/* CLK_MISC_CFG_0 */
++	GATE_TOP(CLK_TOP_ARMPLL_DIVIDER_PLL1_EN,
++		  "arm_div_pll1_en", "mainpll", 4),
++	GATE_TOP(CLK_TOP_ARMPLL_DIVIDER_PLL2_EN,
++		  "arm_div_pll2_en", "univpll", 5),
++};
++
++static const struct mtk_clk_desc topckgen_desc = {
++	.clks = topckgen_gates,
++	.num_clks = ARRAY_SIZE(topckgen_gates),
++	.fixed_clks = topckgen_fixed_clks,
++	.num_fixed_clks = ARRAY_SIZE(topckgen_fixed_clks),
++	.factor_clks = topckgen_factors,
++	.num_factor_clks = ARRAY_SIZE(topckgen_factors),
++	.mux_clks = topckgen_muxes,
++	.num_mux_clks = ARRAY_SIZE(topckgen_muxes),
++	.clk_lock = &mt8163_topckgen_lock,
++};
++
++static const struct of_device_id of_match_mt8163_topckgen[] = {
++	{ .compatible = "mediatek,mt8163-topckgen", .data = &topckgen_desc},
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_mt8163_topckgen);
++
++static struct platform_driver clk_mt8163_topckgen = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt8163-topckgen",
++		.of_match_table = of_match_mt8163_topckgen,
++	},
++};
++module_platform_driver(clk_mt8163_topckgen);
++
++MODULE_AUTHOR("James Liao <jamesjj.liao@mediatek.com>");
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 topckgen clock driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-vdecsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-vdecsys.c
+@@ -0,0 +1,60 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-mtk.h"
++#include "clk-gate.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-vdecsys.h>
++
++static const struct mtk_gate_regs vdec0_cg_regs = {
++	.set_ofs = 0x0000,
++	.clr_ofs = 0x0004,
++	.sta_ofs = 0x0000,
++};
++
++static const struct mtk_gate_regs vdec1_cg_regs = {
++	.set_ofs = 0x0008,
++	.clr_ofs = 0x000c,
++	.sta_ofs = 0x0008,
++};
++
++#define GATE_VDEC0(_id, _name, _parent, _shift)	\
++		GATE_MTK(_id, _name, _parent, &vdec0_cg_regs, _shift, &mtk_clk_gate_ops_setclr_inv)
++
++#define GATE_VDEC1(_id, _name, _parent, _shift)	\
++		GATE_MTK(_id, _name, _parent, &vdec1_cg_regs, _shift, &mtk_clk_gate_ops_setclr_inv)
++
++static const struct mtk_gate vdec_clks[] = {
++	GATE_VDEC0(CLK_VDEC_CKEN, "vdec_cken", "vdec_sel", 0),
++	GATE_VDEC1(CLK_VDEC_LARB_CKEN, "vdec_larb_cken", "mm_sel", 0),
++};
++
++static const struct mtk_clk_desc vdec_desc = {
++	.clks = vdec_clks,
++	.num_clks = ARRAY_SIZE(vdec_clks),
++};
++
++static const struct of_device_id of_match_clk_mt8163_vdecsys[] = {
++	{ .compatible = "mediatek,mt8163-vdecsys", .data = &vdec_desc },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_vdecsys);
++
++static struct platform_driver clk_mt8163_vdecsys_drv = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt8163-vdecsys",
++		.of_match_table = of_match_clk_mt8163_vdecsys,
++	},
++};
++module_platform_driver(clk_mt8163_vdecsys_drv);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 vdecsys clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mt8163-vencsys.c
++++ b/drivers/clk/mediatek/clk-mt8163-vencsys.c
+@@ -0,0 +1,53 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-mtk.h"
++#include "clk-gate.h"
++
++#include <dt-bindings/clock/mediatek,mt8163-vencsys.h>
++
++static const struct mtk_gate_regs venc_cg_regs = {
++	.set_ofs = 0x0004,
++	.clr_ofs = 0x0008,
++	.sta_ofs = 0x0000,
++};
++
++#define GATE_VENC(_id, _name, _parent, _shift)	\
++		GATE_MTK(_id, _name, _parent, &venc_cg_regs, _shift, &mtk_clk_gate_ops_setclr_inv)
++
++static const struct mtk_gate venc_clks[] = {
++	GATE_VENC(CLK_VENC_CKE0, "venc_cke0", "mm_sel", 0),
++	GATE_VENC(CLK_VENC_CKE1, "venc_cke1", "mm_sel", 4),
++	GATE_VENC(CLK_VENC_CKE2, "venc_cke2", "mm_sel", 8),
++	GATE_VENC(CLK_VENC_CKE3, "venc_cke3", "mm_sel", 12),
++};
++
++static const struct mtk_clk_desc venc_desc = {
++	.clks = venc_clks,
++	.num_clks = ARRAY_SIZE(venc_clks),
++};
++
++static const struct of_device_id of_match_clk_mt8163_vencsys[] = {
++	{ .compatible = "mediatek,mt8163-vencsys", .data = &venc_desc },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt8163_vencsys);
++
++static struct platform_driver clk_mt8163_vencsys_drv = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt8163-vencsys",
++		.of_match_table = of_match_clk_mt8163_vencsys,
++	},
++};
++module_platform_driver(clk_mt8163_vencsys_drv);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("MediaTek MT8163 vencsys clocks driver");
++MODULE_LICENSE("GPL");
+--- a/drivers/clk/mediatek/clk-mtk.h
++++ b/drivers/clk/mediatek/clk-mtk.h
+@@ -175,10 +175,10 @@
+ 		.flags = 0,						\
+ 	}
+ 
+-#define MUX_DIV_GATE(_id, _name, _parents,		\
++#define MUX_DIV_GATE_FLAGS(_id, _name, _parents,	\
+ 		_mux_reg, _mux_shift, _mux_width,	\
+ 		_div_reg, _div_shift, _div_width,	\
+-		_gate_reg, _gate_shift) {		\
++		_gate_reg, _gate_shift, _flags) {	\
+ 		.id            = _id,			\
+ 		.name          = _name,			\
+ 		.parent_names  = _parents,		\
+@@ -191,9 +191,19 @@
+ 		.divider_width = _div_width,		\
+ 		.gate_reg      = _gate_reg,		\
+ 		.gate_shift    = _gate_shift,		\
+-		.flags         = CLK_SET_RATE_PARENT,	\
++		.flags         = _flags,		\
+ 	}
+ 
++#define MUX_DIV_GATE(_id, _name, _parents,		\
++		_mux_reg, _mux_shift, _mux_width,	\
++		_div_reg, _div_shift, _div_width,	\
++		_gate_reg, _gate_shift)			\
++	MUX_DIV_GATE_FLAGS(_id, _name, _parents,	\
++		_mux_reg, _mux_shift, _mux_width,	\
++		_div_reg, _div_shift, _div_width,	\
++		_gate_reg, _gate_shift,			\
++		CLK_SET_RATE_PARENT)
++
+ int mtk_clk_register_composites(struct device *dev,
+ 				const struct mtk_composite *mcs, int num,
+ 				void __iomem *base, spinlock_t *lock,
+--- a/drivers/clk/mediatek/clk-mux.c
++++ b/drivers/clk/mediatek/clk-mux.c
+@@ -35,6 +35,46 @@
+ 	return container_of(hw, struct mtk_clk_mux, hw);
+ }
+ 
++static int mtk_clk_mux_enable_upd(struct clk_hw *hw)
++{
++	struct mtk_clk_mux *mux = to_mtk_clk_mux(hw);
++	unsigned long flags = 0;
++
++	if (mux->lock)
++		spin_lock_irqsave(mux->lock, flags);
++	else
++		__acquire(mux->lock);
++
++	regmap_clear_bits(mux->regmap, mux->data->mux_ofs,
++			BIT(mux->data->gate_shift));
++
++	/*
++	 * If the parent has been changed when the clock was disabled, it will
++	 * not be effective yet. Set the update bit to ensure the mux gets
++	 * updated.
++	 */
++	if (mux->reparent && mux->data->upd_shift >= 0) {
++		regmap_write(mux->regmap, mux->data->upd_ofs,
++			     BIT(mux->data->upd_shift));
++		mux->reparent = false;
++	}
++
++	if (mux->lock)
++		spin_unlock_irqrestore(mux->lock, flags);
++	else
++		__release(mux->lock);
++
++	return 0;
++}
++
++static void mtk_clk_mux_disable_upd(struct clk_hw *hw)
++{
++	struct mtk_clk_mux *mux = to_mtk_clk_mux(hw);
++
++	regmap_set_bits(mux->regmap, mux->data->mux_ofs,
++			BIT(mux->data->gate_shift));
++}
++
+ static int mtk_clk_mux_fenc_enable_setclr(struct clk_hw *hw)
+ {
+ 	struct mtk_clk_mux *mux = to_mtk_clk_mux(hw);
+@@ -220,6 +260,44 @@
+ 	return 0;
+ }
+ 
++static int mtk_clk_mux_set_parent_upd_lock(struct clk_hw *hw, u8 index)
++{
++	struct mtk_clk_mux *mux = to_mtk_clk_mux(hw);
++	u32 mask = GENMASK(mux->data->mux_width - 1, 0);
++	u32 val, orig;
++	unsigned long flags = 0;
++
++	if (mux->lock)
++		spin_lock_irqsave(mux->lock, flags);
++	else
++		__acquire(mux->lock);
++
++	if (mux->data->parent_index)
++		index = mux->data->parent_index[index];
++
++	regmap_read(mux->regmap, mux->data->mux_ofs, &orig);
++	val = (orig & ~(mask << mux->data->mux_shift))
++			| (index << mux->data->mux_shift);
++
++	if (val != orig) {
++		regmap_write(mux->regmap, mux->data->mux_ofs,
++				val);
++
++		if (mux->data->upd_shift >= 0) {
++			regmap_write(mux->regmap, mux->data->upd_ofs,
++					BIT(mux->data->upd_shift));
++			mux->reparent = true;
++		}
++	}
++
++	if (mux->lock)
++		spin_unlock_irqrestore(mux->lock, flags);
++	else
++		__release(mux->lock);
++
++	return 0;
++}
++
+ static int mtk_clk_mux_determine_rate(struct clk_hw *hw,
+ 				      struct clk_rate_request *req)
+ {
+@@ -271,6 +349,23 @@
+ };
+ EXPORT_SYMBOL_GPL(mtk_mux_gate_hwv_fenc_clr_set_upd_ops);
+ 
++const struct clk_ops mtk_mux_upd_ops = {
++	.get_parent = mtk_clk_mux_get_parent,
++	.set_parent = mtk_clk_mux_set_parent_upd_lock,
++	.determine_rate = mtk_clk_mux_determine_rate,
++};
++EXPORT_SYMBOL_GPL(mtk_mux_upd_ops);
++
++const struct clk_ops mtk_mux_gate_upd_ops  = {
++	.enable = mtk_clk_mux_enable_upd,
++	.disable = mtk_clk_mux_disable_upd,
++	.is_enabled = mtk_clk_mux_is_enabled,
++	.get_parent = mtk_clk_mux_get_parent,
++	.set_parent = mtk_clk_mux_set_parent_upd_lock,
++	.determine_rate = mtk_clk_mux_determine_rate,
++};
++EXPORT_SYMBOL_GPL(mtk_mux_gate_upd_ops);
++
+ static struct clk_hw *mtk_clk_register_mux(struct device *dev,
+ 					   const struct mtk_mux *mux,
+ 					   struct regmap *regmap,
+--- a/drivers/clk/mediatek/clk-mux.h
++++ b/drivers/clk/mediatek/clk-mux.h
+@@ -81,6 +81,23 @@
+ 			_mux_set_ofs, _mux_clr_ofs, _shift, _width,	\
+ 			_gate, _upd_ofs, _upd, _flags, _ops)		\
+ 
++#define GATE_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift, _width,	\
++			_gate, _upd_ofs, _upd, _flags, _ops)		\
++		__GATE_CLR_SET_UPD_FLAGS(_id, _name, _parents,		\
++			NULL, ARRAY_SIZE(_parents), _mux_ofs,		\
++			0, 0, _shift, _width, _gate, _upd_ofs,	\
++			_upd, _flags, _ops)
++
++#define GATE_UPD_FLAGS_INDEXED(_id, _name, _parents, _paridx,		\
++			_mux_ofs, _shift, _width, _gate, _upd_ofs,	\
++			_upd, _flags, _ops)				\
++		__GATE_CLR_SET_UPD_FLAGS(_id, _name, _parents,		\
++			_paridx, ARRAY_SIZE(_paridx), _mux_ofs,		\
++			0, 0, _shift, _width, _gate, _upd_ofs,		\
++			_upd, _flags, _ops)
++
++extern const struct clk_ops mtk_mux_upd_ops;
++extern const struct clk_ops mtk_mux_gate_upd_ops;
+ extern const struct clk_ops mtk_mux_clr_set_upd_ops;
+ extern const struct clk_ops mtk_mux_gate_clr_set_upd_ops;
+ extern const struct clk_ops mtk_mux_gate_fenc_clr_set_upd_ops;
+@@ -210,6 +227,30 @@
+ 			_mux_clr_ofs, _shift, _width, _gate, _upd_ofs, _upd,	\
+ 			_fenc_sta_mon_ofs, _fenc, 0)
+ 
++#define MUX_GATE_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift, 	\
++			_width, _gate, _upd_ofs, _upd, _flags)		\
++		GATE_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift,	\
++			_width, _gate, _upd_ofs, _upd,			\
++			_flags, mtk_mux_gate_upd_ops)
++
++#define MUX_GATE_UPD(_id, _name, _parents, _mux_ofs, _shift, _width,	\
++			_gate, _upd_ofs, _upd)				\
++		MUX_GATE_UPD_FLAGS(_id, _name, _parents, _mux_ofs,	\
++			_shift, _width, _gate, _upd_ofs, _upd,		\
++			CLK_SET_RATE_PARENT)
++
++#define MUX_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift, _width,	\
++			_upd_ofs, _upd, _flags)				\
++		GATE_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift,	\
++			_width, 0, _upd_ofs, _upd,			\
++			_flags, mtk_mux_upd_ops)
++
++#define MUX_UPD(_id, _name, _parents, _mux_ofs, _shift, _width,		\
++			_upd_ofs, _upd)					\
++		MUX_UPD_FLAGS(_id, _name, _parents, _mux_ofs, _shift,	\
++			_width, _upd_ofs, _upd,				\
++			CLK_SET_RATE_PARENT)
++
+ int mtk_clk_register_muxes(struct device *dev,
+ 			   const struct mtk_mux *muxes,
+ 			   int num, struct device_node *node,
+--- a/drivers/cpufreq/cpufreq-dt-platdev.c
++++ b/drivers/cpufreq/cpufreq-dt-platdev.c
+@@ -136,6 +136,7 @@
+ 	{ .compatible = "mediatek,mt2712", },
+ 	{ .compatible = "mediatek,mt7622", },
+ 	{ .compatible = "mediatek,mt7623", },
++	{ .compatible = "mediatek,mt8163", },
+ 	{ .compatible = "mediatek,mt8167", },
+ 	{ .compatible = "mediatek,mt817x", },
+ 	{ .compatible = "mediatek,mt8173", },
+--- a/drivers/cpufreq/mediatek-cpufreq.c
++++ b/drivers/cpufreq/mediatek-cpufreq.c
+@@ -750,6 +750,7 @@
+ 	{ .compatible = "mediatek,mt7622", .data = &mt7622_platform_data },
+ 	{ .compatible = "mediatek,mt7623", .data = &mt7623_platform_data },
+ 	{ .compatible = "mediatek,mt7988a", .data = &mt7988_platform_data },
++	{ .compatible = "mediatek,mt8163", .data = &mt7623_platform_data },
+ 	{ .compatible = "mediatek,mt8167", .data = &mt8516_platform_data },
+ 	{ .compatible = "mediatek,mt817x", .data = &mt2701_platform_data },
+ 	{ .compatible = "mediatek,mt8173", .data = &mt2701_platform_data },
+--- a/drivers/iio/light/jsa1212.c
++++ b/drivers/iio/light/jsa1212.c
+@@ -16,10 +16,13 @@
+ #include <linux/i2c.h>
+ #include <linux/mutex.h>
+ #include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
++
+ #include <linux/iio/iio.h>
+ #include <linux/iio/sysfs.h>
+ 
+ /* JSA1212 reg address */
++#define JSA1212_ID_REG			0x00
+ #define JSA1212_CONF_REG		0x01
+ #define JSA1212_INT_REG			0x02
+ #define JSA1212_PXS_LT_REG		0x03
+@@ -111,15 +114,28 @@
+ 	JSA1212_OPMODE_PXS_EN,
+ };
+ 
++enum {
++	jsa1212 = 0,
++	jsa1214,
++};
++
+ struct jsa1212_data {
+ 	struct i2c_client *client;
+ 	struct mutex lock;
++	const struct jsa1212_chip_info *chip_info;
+ 	u8 als_rng_idx;
+ 	bool als_en; /* ALS enable status */
+ 	bool pxs_en; /* proximity enable status */
+ 	struct regmap *regmap;
+ };
+ 
++struct jsa1212_chip_info {
++	const char *name;
++	u8 chipid;
++	const struct iio_chan_spec *channels;
++	int num_channels;
++};
++
+ /* ALS range idx to val mapping */
+ static const int jsa1212_als_range_val[] = {2048, 1024, 512, 256, 128,
+ 						128, 128, 128};
+@@ -260,10 +276,33 @@
+ 	}
+ };
+ 
++static const struct iio_chan_spec jsa1214_channels[] = {
++	{
++		.type = IIO_LIGHT,
++		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
++			BIT(IIO_CHAN_INFO_SCALE),
++	}
++};
++
+ static const struct iio_info jsa1212_info = {
+ 	.read_raw		= &jsa1212_read_raw,
+ };
+ 
++static const struct jsa1212_chip_info jsa1212_chip_info_tbl[] = {
++	[jsa1212] = {
++		.name = JSA1212_DRIVER_NAME,
++		.chipid = 0x00,
++		.channels = jsa1212_channels,
++		.num_channels = ARRAY_SIZE(jsa1212_channels),
++	},
++	[jsa1214] = {
++		.name = "jsa1214",
++		.chipid = 0x21,
++		.channels = jsa1214_channels,
++		.num_channels = ARRAY_SIZE(jsa1214_channels),
++	},
++};
++
+ static int jsa1212_chip_init(struct jsa1212_data *data)
+ {
+ 	int ret;
+@@ -310,34 +349,47 @@
+ {
+ 	struct jsa1212_data *data;
+ 	struct iio_dev *indio_dev;
+-	struct regmap *regmap;
+-	int ret;
++	int chipid_raw, ret;
+ 
+ 	indio_dev = devm_iio_device_alloc(&client->dev, sizeof(*data));
+ 	if (!indio_dev)
+ 		return -ENOMEM;
+ 
+-	regmap = devm_regmap_init_i2c(client, &jsa1212_regmap_config);
+-	if (IS_ERR(regmap)) {
+-		dev_err(&client->dev, "Regmap initialization failed.\n");
+-		return PTR_ERR(regmap);
+-	}
+-
+ 	data = iio_priv(indio_dev);
+-
+-	i2c_set_clientdata(client, indio_dev);
+ 	data->client = client;
+-	data->regmap = regmap;
++
++	data->regmap = devm_regmap_init_i2c(client, &jsa1212_regmap_config);
++	if (IS_ERR(data->regmap))
++		return PTR_ERR(data->regmap);
++
++	data->chip_info = i2c_get_match_data(client);
++    	if (!data->chip_info)
++        	return dev_err_probe(&client->dev, -ENODEV, "Could not find matching chip data\n");
+ 
+ 	mutex_init(&data->lock);
+ 
+-	ret = jsa1212_chip_init(data);
++	ret = devm_regulator_get_enable_optional(&client->dev, "vdd");
++	if (ret < 0 && ret != -ENODEV)
++		return dev_err_probe(&client->dev, ret,
++				     "Failed to get regulator\n");
++
++	/* Verify Chip ID */
++	ret = regmap_read(data->regmap, JSA1212_ID_REG, &chipid_raw);
+ 	if (ret < 0)
+ 		return ret;
+ 
+-	indio_dev->channels = jsa1212_channels;
+-	indio_dev->num_channels = ARRAY_SIZE(jsa1212_channels);
+-	indio_dev->name = JSA1212_DRIVER_NAME;
++	if (chipid_raw != data->chip_info->chipid) {
++		dev_err(&client->dev, "ID mismatch: got 0x%x, expected 0x%x\n",
++			chipid_raw, data->chip_info->chipid);
++		return -ENODEV;
++	}
++	ret = jsa1212_chip_init(data);
++	if (ret < 0)
++		return dev_err_probe(&client->dev, ret, "chip init failed\n");
++
++	indio_dev->channels = data->chip_info->channels;
++	indio_dev->num_channels = data->chip_info->num_channels;
++	indio_dev->name = data->chip_info->name;
+ 	indio_dev->modes = INDIO_DIRECT_MODE;
+ 
+ 	indio_dev->info = &jsa1212_info;
+@@ -421,22 +473,30 @@
+ 				jsa1212_resume);
+ 
+ static const struct acpi_device_id jsa1212_acpi_match[] = {
+-	{"JSA1212", 0},
++	{"JSA1212", (kernel_ulong_t)&jsa1212_chip_info_tbl[jsa1212] },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(acpi, jsa1212_acpi_match);
+ 
+ static const struct i2c_device_id jsa1212_id[] = {
+-	{ .name = JSA1212_DRIVER_NAME },
++	{ .name = JSA1212_DRIVER_NAME, .driver_data = (kernel_ulong_t)&jsa1212_chip_info_tbl[jsa1212] },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(i2c, jsa1212_id);
+ 
++static const struct of_device_id jsa1212_of_match[] = {
++	{ .compatible = "solteam,jsa1212", .data = &jsa1212_chip_info_tbl[jsa1212] },
++	{ .compatible = "solteam,jsa1214", .data = &jsa1212_chip_info_tbl[jsa1214] },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, jsa1212_of_match);
++
+ static struct i2c_driver jsa1212_driver = {
+ 	.driver = {
+ 		.name	= JSA1212_DRIVER_NAME,
+ 		.pm	= pm_sleep_ptr(&jsa1212_pm_ops),
+-		.acpi_match_table = jsa1212_acpi_match,
++		.acpi_match_table = ACPI_PTR(jsa1212_acpi_match),
++		.of_match_table = jsa1212_of_match,
+ 	},
+ 	.probe		= jsa1212_probe,
+ 	.remove		= jsa1212_remove,
+--- a/drivers/input/touchscreen/goodix.c
++++ b/drivers/input/touchscreen/goodix.c
+@@ -1191,8 +1191,14 @@
+ 		dev_err(&ts->client->dev,
+ 			"Invalid config (%d, %d, %d), using defaults\n",
+ 			ts->prop.max_x, ts->prop.max_y, ts->max_touch_num);
+-		ts->prop.max_x = GOODIX_MAX_WIDTH - 1;
+-		ts->prop.max_y = GOODIX_MAX_HEIGHT - 1;
++
++		/* Device tree may provide valid values for max_x and max_y
++		 * so check if they are valid, and if so, do not override them.
++		 */
++		if (!ts->prop.max_x || !ts->prop.max_y) {
++			ts->prop.max_x = GOODIX_MAX_WIDTH - 1;
++			ts->prop.max_y = GOODIX_MAX_HEIGHT - 1;
++		}
+ 		ts->max_touch_num = GOODIX_MAX_CONTACTS;
+ 		input_abs_set_max(ts->input_dev,
+ 				  ABS_MT_POSITION_X, ts->prop.max_x);
+--- a/drivers/iommu/mtk_iommu.c
++++ b/drivers/iommu/mtk_iommu.c
+@@ -169,6 +169,7 @@
+ 	M4U_MT2712,
+ 	M4U_MT6779,
+ 	M4U_MT6795,
++	M4U_MT8163,
+ 	M4U_MT8167,
+ 	M4U_MT8173,
+ 	M4U_MT8183,
+@@ -1627,6 +1628,18 @@
+ 			    {0, 14, 16}, {0, 13, 18, 17}},
+ };
+ 
++static const struct mtk_iommu_plat_data mt8163_data = {
++	.m4u_plat     = M4U_MT8163,
++	.flags	      = RESET_AXI | HAS_LEGACY_IVRP_PADDR | MTK_IOMMU_TYPE_MM |
++			TF_PORT_TO_ADDR_MT8173,
++	.inv_sel_reg  = REG_MMU_INV_SEL_GEN1,
++	.banks_num    = 1,
++	.banks_enable = {true},
++	.iova_region  = single_domain,
++	.iova_region_nr = ARRAY_SIZE(single_domain),
++	.larbid_remap = {{0}, {1}, {2}, {3}}, /* Linear mapping. */
++};
++
+ static const struct mtk_iommu_plat_data mt8167_data = {
+ 	.m4u_plat     = M4U_MT8167,
+ 	.flags        = RESET_AXI | HAS_LEGACY_IVRP_PADDR | MTK_IOMMU_TYPE_MM,
+@@ -1904,6 +1917,7 @@
+ 	{ .compatible = "mediatek,mt6779-m4u", .data = &mt6779_data},
+ 	{ .compatible = "mediatek,mt6795-m4u", .data = &mt6795_data},
+ 	{ .compatible = "mediatek,mt6893-iommu-mm", .data = &mt6893_data},
++	{ .compatible = "mediatek,mt8163-m4u", .data = &mt8163_data},
+ 	{ .compatible = "mediatek,mt8167-m4u", .data = &mt8167_data},
+ 	{ .compatible = "mediatek,mt8173-m4u", .data = &mt8173_data},
+ 	{ .compatible = "mediatek,mt8183-m4u", .data = &mt8183_data},
+--- a/drivers/memory/mtk-smi.c
++++ b/drivers/memory/mtk-smi.c
+@@ -551,6 +551,7 @@
+ 	{.compatible = "mediatek,mt6779-smi-larb", .data = &mtk_smi_larb_mt6779},
+ 	{.compatible = "mediatek,mt6795-smi-larb", .data = &mtk_smi_larb_mt8173},
+ 	{.compatible = "mediatek,mt6893-smi-larb", .data = &mtk_smi_larb_mt6893},
++	{.compatible = "mediatek,mt8163-smi-larb", .data = &mtk_smi_larb_mt8173},
+ 	{.compatible = "mediatek,mt8167-smi-larb", .data = &mtk_smi_larb_mt8167},
+ 	{.compatible = "mediatek,mt8173-smi-larb", .data = &mtk_smi_larb_mt8173},
+ 	{.compatible = "mediatek,mt8183-smi-larb", .data = &mtk_smi_larb_mt8183},
+@@ -746,6 +747,12 @@
+ 	{SMI_READ_FIFO_TH, 0x191f},
+ };
+ 
++static const struct mtk_smi_reg_pair mtk_smi_common_mt8163_init[SMI_COMMON_INIT_REGS_NR] = {
++	{SMI_L1_ARB, 0x1b},
++	{SMI_M4U_TH, 0xf7e19085},
++	{SMI_READ_FIFO_TH, 0x1d1f},
++};
++
+ static const struct mtk_smi_reg_pair mtk_smi_common_mt8195_init[SMI_COMMON_INIT_REGS_NR] = {
+ 	{SMI_L1LEN, 0xb},
+ 	{SMI_M4U_TH, 0xe100e10},
+@@ -783,6 +790,11 @@
+ 		    F_MMU1_LARB(5) | F_MMU1_LARB(7),
+ };
+ 
++static const struct mtk_smi_common_plat mtk_smi_common_mt8163 = {
++	.type	  = MTK_SMI_GEN2,
++	.init     = mtk_smi_common_mt8163_init,
++};
++
+ static const struct mtk_smi_common_plat mtk_smi_common_mt8183 = {
+ 	.type     = MTK_SMI_GEN2,
+ 	.has_gals = true,
+@@ -846,6 +858,7 @@
+ 	{.compatible = "mediatek,mt6779-smi-common", .data = &mtk_smi_common_mt6779},
+ 	{.compatible = "mediatek,mt6795-smi-common", .data = &mtk_smi_common_mt6795},
+ 	{.compatible = "mediatek,mt6893-smi-common", .data = &mtk_smi_common_mt6893},
++	{.compatible = "mediatek,mt8163-smi-common", .data = &mtk_smi_common_mt8163},
+ 	{.compatible = "mediatek,mt8167-smi-common", .data = &mtk_smi_common_gen2},
+ 	{.compatible = "mediatek,mt8173-smi-common", .data = &mtk_smi_common_gen2},
+ 	{.compatible = "mediatek,mt8183-smi-common", .data = &mtk_smi_common_mt8183},
+--- a/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8173.c
++++ b/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8173.c
+@@ -80,8 +80,12 @@
+ 
+ #define MIPITX_DSI_PLL_CON2	0x58
+ 
++#define MIPITX_DSI_PLL_CHG	0x60
++#define RG_DSI_MPPLL_SDM_PCW_CHG	BIT(0)
++
+ #define MIPITX_DSI_PLL_TOP	0x64
+ #define RG_DSI_MPPLL_PRESERVE		GENMASK(15, 8)
++#define RG_DSI_MPPLL_PRESERVE_MT8163	GENMASK(11, 7)
+ 
+ #define MIPITX_DSI_PLL_PWR	0x68
+ #define RG_DSI_MPPLL_SDM_PWR_ON		BIT(0)
+@@ -211,6 +215,101 @@
+ 	return 0;
+ }
+ 
++static int mtk_mipi_tx_pll_prepare_mt8163(struct clk_hw *hw)
++{
++	struct mtk_mipi_tx *mipi_tx = mtk_mipi_tx_from_clk_hw(hw);
++	void __iomem *base = mipi_tx->regs;
++	u8 txdiv, txdiv0, txdiv1;
++	u32 reg;
++	u64 pcw;
++
++	dev_dbg(mipi_tx->dev, "prepare: %u Hz\n", mipi_tx->data_rate);
++
++	if (mipi_tx->data_rate >= 500000000) {
++		txdiv = 1;
++		txdiv0 = 0;
++		txdiv1 = 0;
++	} else if (mipi_tx->data_rate >= 250000000) {
++		txdiv = 2;
++		txdiv0 = 1;
++		txdiv1 = 0;
++	} else if (mipi_tx->data_rate >= 125000000) {
++		txdiv = 4;
++		txdiv0 = 2;
++		txdiv1 = 0;
++	} else if (mipi_tx->data_rate > 62000000) {
++		txdiv = 8;
++		txdiv0 = 2;
++		txdiv1 = 1;
++	} else if (mipi_tx->data_rate >= 50000000) {
++		txdiv = 16;
++		txdiv0 = 2;
++		txdiv1 = 2;
++	} else {
++		return -EINVAL;
++	}
++
++	for (reg = MIPITX_DSI_CLOCK_LANE;
++	     reg <= MIPITX_DSI_DATA_LANE3; reg += 4)
++		mtk_phy_update_bits(base + reg,
++				    RG_DSI_LNTx_RT_CODE,
++				    FIELD_PREP(RG_DSI_LNTx_RT_CODE, 0x8));
++
++	mtk_phy_set_bits(base + MIPITX_DSI_BG_CON,
++			    RG_DSI_BG_CKEN | RG_DSI_BG_CORE_EN |
++			    RG_DSI_BG_FAST_CHARGE);
++
++	usleep_range(30, 100);
++
++	mtk_phy_set_bits(base + MIPITX_DSI_TOP_CON, RG_DSI_LNT_HS_BIAS_EN);
++
++	mtk_phy_set_bits(base + MIPITX_DSI_CON,
++			 RG_DSI_CKG_LDOOUT_EN | RG_DSI_LDOCORE_EN);
++
++	mtk_phy_update_bits(base + MIPITX_DSI_PLL_PWR,
++			    RG_DSI_MPPLL_SDM_PWR_ON | RG_DSI_MPPLL_SDM_ISO_EN,
++			    RG_DSI_MPPLL_SDM_PWR_ON);
++
++	mtk_phy_clear_bits(base + MIPITX_DSI_BG_CON, RG_DSI_BG_FAST_CHARGE);
++
++	usleep_range(30, 100);
++
++	mtk_phy_update_bits(base + MIPITX_DSI_PLL_CON0,
++			    RG_DSI_MPPLL_TXDIV0 | RG_DSI_MPPLL_TXDIV1 |
++			    RG_DSI_MPPLL_PREDIV,
++			    FIELD_PREP(RG_DSI_MPPLL_TXDIV0, txdiv0) |
++			    FIELD_PREP(RG_DSI_MPPLL_TXDIV1, txdiv1));
++
++	/*
++	 * PLL PCW config
++	 * PCW bit 24~30 = integer part of pcw
++	 * PCW bit 0~23 = fractional part of pcw
++	 * pcw = data_Rate*4*txdiv/(Ref_clk*2);
++	 * Post DIV =4, so need data_Rate*4
++	 * Ref_clk is 26MHz
++	 */
++	pcw = div_u64(((u64)mipi_tx->data_rate * 2 * txdiv) << 24, 26000000);
++	writel(pcw, base + MIPITX_DSI_PLL_CON2);
++
++	mtk_phy_set_bits(base + MIPITX_DSI_PLL_CON1, RG_DSI_MPPLL_SDM_FRA_EN);
++
++	mtk_phy_update_field(base + MIPITX_DSI_PLL_TOP,
++			     RG_DSI_MPPLL_PRESERVE_MT8163,
++			     mipi_tx->driver_data->mppll_preserve);
++
++	mtk_phy_set_bits(base + MIPITX_DSI_PLL_CON0, RG_DSI_MPPLL_PLL_EN);
++
++	usleep_range(20, 100);
++
++	mtk_phy_clear_bits(base + MIPITX_DSI_PLL_CHG, RG_DSI_MPPLL_SDM_PCW_CHG);
++
++	mtk_phy_set_bits(base + MIPITX_DSI_PLL_CHG, RG_DSI_MPPLL_SDM_PCW_CHG);
++
++	mtk_phy_clear_bits(base + MIPITX_DSI_PLL_CON1, RG_DSI_MPPLL_SDM_SSC_EN);
++
++	return 0;
++}
++
+ static void mtk_mipi_tx_pll_unprepare(struct clk_hw *hw)
+ {
+ 	struct mtk_mipi_tx *mipi_tx = mtk_mipi_tx_from_clk_hw(hw);
+@@ -253,6 +352,14 @@
+ 	.recalc_rate = mtk_mipi_tx_pll_recalc_rate,
+ };
+ 
++static const struct clk_ops mtk_mipi_tx_pll_ops_mt8163 = {
++	.prepare = mtk_mipi_tx_pll_prepare_mt8163,
++	.unprepare = mtk_mipi_tx_pll_unprepare,
++	.round_rate = mtk_mipi_tx_pll_round_rate,
++	.set_rate = mtk_mipi_tx_pll_set_rate,
++	.recalc_rate = mtk_mipi_tx_pll_recalc_rate,
++};
++
+ static void mtk_mipi_tx_power_on_signal(struct phy *phy)
+ {
+ 	struct mtk_mipi_tx *mipi_tx = phy_get_drvdata(phy);
+@@ -285,6 +392,13 @@
+ 	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
+ 	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
+ };
++
++const struct mtk_mipitx_data mt8163_mipitx_data = {
++	.mppll_preserve = 2,
++	.mipi_tx_clk_ops = &mtk_mipi_tx_pll_ops_mt8163,
++	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
++	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
++};
+ 
+ const struct mtk_mipitx_data mt8173_mipitx_data = {
+ 	.mppll_preserve = 0,
+--- a/drivers/phy/mediatek/phy-mtk-mipi-dsi.c
++++ b/drivers/phy/mediatek/phy-mtk-mipi-dsi.c
+@@ -3,6 +3,8 @@
+  * Copyright (c) 2015 MediaTek Inc.
+  */
+ 
++#include <linux/reset.h>
++
+ #include "phy-mtk-mipi-dsi.h"
+ 
+ inline struct mtk_mipi_tx *mtk_mipi_tx_from_clk_hw(struct clk_hw *hw)
+@@ -155,6 +157,10 @@
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret, "Failed to read clock-output-names\n");
+ 
++	ret = device_reset_optional(dev);
++	if (ret < 0)
++		return ret;
++
+ 	clk_init.ops = mipi_tx->driver_data->mipi_tx_clk_ops;
+ 
+ 	mipi_tx->pll_hw.init = &clk_init;
+@@ -181,6 +187,7 @@
+ 
+ static const struct of_device_id mtk_mipi_tx_match[] = {
+ 	{ .compatible = "mediatek,mt2701-mipi-tx", .data = &mt2701_mipitx_data },
++	{ .compatible = "mediatek,mt8163-mipi-tx", .data = &mt8163_mipitx_data },
+ 	{ .compatible = "mediatek,mt8173-mipi-tx", .data = &mt8173_mipitx_data },
+ 	{ .compatible = "mediatek,mt8183-mipi-tx", .data = &mt8183_mipitx_data },
+ 	{ .compatible = "mediatek,mt8196-mipi-tx", .data = &mt8196_mipitx_data },
+--- a/drivers/phy/mediatek/phy-mtk-mipi-dsi.h
++++ b/drivers/phy/mediatek/phy-mtk-mipi-dsi.h
+@@ -40,6 +40,7 @@
+ 					  unsigned long parent_rate);
+ 
+ extern const struct mtk_mipitx_data mt2701_mipitx_data;
++extern const struct mtk_mipitx_data mt8163_mipitx_data;
+ extern const struct mtk_mipitx_data mt8173_mipitx_data;
+ extern const struct mtk_mipitx_data mt8183_mipitx_data;
+ extern const struct mtk_mipitx_data mt8196_mipitx_data;
+--- a/drivers/phy/mediatek/phy-mtk-tphy.c
++++ b/drivers/phy/mediatek/phy-mtk-tphy.c
+@@ -112,6 +112,10 @@
+ #define U3P_U2PHYDTM1		0x06C
+ #define P2C_RG_UART_EN			BIT(16)
+ #define P2C_FORCE_IDDIG		BIT(9)
++#define P2C_FORCE_AVALID	BIT(10)
++#define P2C_FORCE_SESSEND	BIT(12)
++#define P2C_FORCE_VBUSVALID	BIT(13)
++
+ #define P2C_RG_VBUSVALID		BIT(5)
+ #define P2C_RG_SESSEND			BIT(4)
+ #define P2C_RG_AVALID			BIT(2)
+@@ -883,6 +887,9 @@
+ 
+ 		mtk_phy_set_bits(com + U3P_U2PHYDTM0, P2C_RG_SUSPENDM | P2C_FORCE_SUSPENDM);
+ 	}
++
++	mtk_phy_set_bits(com + U3P_U2PHYDTM1, P2C_FORCE_AVALID | P2C_FORCE_VBUSVALID | P2C_FORCE_SESSEND);
++
+ 	dev_dbg(tphy->dev, "%s(%d)\n", __func__, index);
+ }
+ 
+--- a/drivers/pinctrl/mediatek/Kconfig
++++ b/drivers/pinctrl/mediatek/Kconfig
+@@ -224,6 +224,13 @@
+ 	default ARM64 && ARCH_MEDIATEK
+ 	select PINCTRL_MTK_MOORE
+ 
++config PINCTRL_MT8163
++	bool "MediaTek MT8163 pin control"
++	depends on OF
++	depends on ARM64 || COMPILE_TEST
++	default ARM64 && ARCH_MEDIATEK
++	select PINCTRL_MTK
++
+ config PINCTRL_MT8167
+ 	tristate "MediaTek MT8167 pin control"
+ 	depends on OF
+--- a/drivers/pinctrl/mediatek/Makefile
++++ b/drivers/pinctrl/mediatek/Makefile
+@@ -31,6 +31,7 @@
+ obj-$(CONFIG_PINCTRL_MT7981)		+= pinctrl-mt7981.o
+ obj-$(CONFIG_PINCTRL_MT7986)		+= pinctrl-mt7986.o
+ obj-$(CONFIG_PINCTRL_MT7988)		+= pinctrl-mt7988.o
++obj-$(CONFIG_PINCTRL_MT8163)		+= pinctrl-mt8163.o
+ obj-$(CONFIG_PINCTRL_MT8167)		+= pinctrl-mt8167.o
+ obj-$(CONFIG_PINCTRL_MT8173)		+= pinctrl-mt8173.o
+ obj-$(CONFIG_PINCTRL_MT8183)		+= pinctrl-mt8183.o
+--- a/drivers/pinctrl/mediatek/pinctrl-mt8163.c
++++ b/drivers/pinctrl/mediatek/pinctrl-mt8163.c
+@@ -0,0 +1,352 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2015 MediaTek Inc.
++ * Author: Hongzhou.Yang <hongzhou.yang@mediatek.com>
++ *         Yingjoe Chen <yingjoe.chen@mediatek.com>
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/init.h>
++#include <linux/platform_device.h>
++#include <linux/of.h>
++#include <linux/pinctrl/pinctrl.h>
++#include <linux/regmap.h>
++#include <dt-bindings/pinctrl/mt65xx.h>
++
++#include "pinctrl-mtk-common.h"
++#include "pinctrl-mtk-mt8163.h"
++
++static const struct mtk_drv_group_desc mt8163_drv_grp[] =  {
++	/* 0E4E8SR 4/8/12/16 */
++	MTK_DRV_GRP(4, 16, 1, 2, 4),
++	/* 0E2E4SR  2/4/6/8 */
++	MTK_DRV_GRP(2, 8, 1, 2, 2),
++	/* E8E4E2  2/4/6/8/10/12/14/16 */
++	MTK_DRV_GRP(2, 16, 0, 2, 2)
++};
++
++static const struct mtk_pin_drv_grp mt8163_pin_drv[] = {
++	MTK_PIN_DRV_GRP(0,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(1,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(2,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(3,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(4,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(5,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(6,   0xb00,  0, 1),
++	MTK_PIN_DRV_GRP(7,   0xb00, 12, 1),
++	MTK_PIN_DRV_GRP(8,   0xb00, 12, 1),
++	MTK_PIN_DRV_GRP(9,   0xb00, 12, 1),
++	MTK_PIN_DRV_GRP(10,  0xb00,  8, 1),
++	MTK_PIN_DRV_GRP(11,  0xb00,  8, 1),
++	MTK_PIN_DRV_GRP(12,  0xb00,  8, 1),
++	MTK_PIN_DRV_GRP(13,  0xb00,  8, 1),
++	MTK_PIN_DRV_GRP(14,  0xb10,  4, 0),
++	MTK_PIN_DRV_GRP(15,  0xb10,  4, 0),
++	MTK_PIN_DRV_GRP(16,  0xb10,  4, 0),
++	MTK_PIN_DRV_GRP(17,  0xb10,  4, 0),
++	MTK_PIN_DRV_GRP(18,  0xb10,  8, 0),
++	MTK_PIN_DRV_GRP(19,  0xb10,  8, 0),
++	MTK_PIN_DRV_GRP(20,  0xb10,  8, 0),
++	MTK_PIN_DRV_GRP(21,  0xb10,  8, 0),
++	MTK_PIN_DRV_GRP(22,  0xb20,  0, 0),
++	MTK_PIN_DRV_GRP(23,  0xb20,  0, 0),
++	MTK_PIN_DRV_GRP(24,  0xb20,  0, 0),
++	MTK_PIN_DRV_GRP(25,  0xb20,  0, 0),
++	MTK_PIN_DRV_GRP(26,  0xb20,  0, 0),
++	MTK_PIN_DRV_GRP(27,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(28,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(29,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(30,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(31,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(32,  0xb20,  4, 0),
++	MTK_PIN_DRV_GRP(33,  0xb30,  4, 1),
++	MTK_PIN_DRV_GRP(34,  0xb30,  8, 1),
++	MTK_PIN_DRV_GRP(35,  0xb30,  8, 1),
++	MTK_PIN_DRV_GRP(36,  0xb30,  8, 1),
++	MTK_PIN_DRV_GRP(37,  0xb30,  8, 1),
++	MTK_PIN_DRV_GRP(38,  0xb30,  8, 1),
++	MTK_PIN_DRV_GRP(39,  0xb30, 12, 1),
++	MTK_PIN_DRV_GRP(40,  0xb30, 12, 1),
++	MTK_PIN_DRV_GRP(41,  0xb30, 12, 1),
++	MTK_PIN_DRV_GRP(42,  0xb30, 12, 1),
++	MTK_PIN_DRV_GRP(43,  0xb40, 12, 0),
++	MTK_PIN_DRV_GRP(44,  0xb40, 12, 0),
++	MTK_PIN_DRV_GRP(45,  0xb40, 12, 0),
++	MTK_PIN_DRV_GRP(46,  0xb50,  0, 2),
++	MTK_PIN_DRV_GRP(47,  0xb50,  0, 2),
++	MTK_PIN_DRV_GRP(48,  0xb50,  0, 2),
++	MTK_PIN_DRV_GRP(49,  0xb50,  0, 2),
++	MTK_PIN_DRV_GRP(50,  0xb70,  0, 1),
++	MTK_PIN_DRV_GRP(51,  0xb70,  0, 1),
++	MTK_PIN_DRV_GRP(52,  0xb70,  0, 1),
++	MTK_PIN_DRV_GRP(53,  0xb50, 12, 1),
++	MTK_PIN_DRV_GRP(54,  0xb50, 12, 1),
++	MTK_PIN_DRV_GRP(55,  0xb50, 12, 1),
++	MTK_PIN_DRV_GRP(56,  0xb50, 12, 1),
++	MTK_PIN_DRV_GRP(59,  0xb40,  4, 1),
++	MTK_PIN_DRV_GRP(60,  0xb40,  0, 1),
++	MTK_PIN_DRV_GRP(61,  0xb40,  0, 1),
++	MTK_PIN_DRV_GRP(62,  0xb40,  0, 1),
++	MTK_PIN_DRV_GRP(63,  0xb40,  4, 1),
++	MTK_PIN_DRV_GRP(64,  0xb40,  4, 1),
++	MTK_PIN_DRV_GRP(65,  0xb40,  4, 1),
++	MTK_PIN_DRV_GRP(66,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(67,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(68,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(69,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(70,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(71,  0xb40,  8, 1),
++	MTK_PIN_DRV_GRP(72,  0xb50,  4, 1),
++	MTK_PIN_DRV_GRP(73,  0xb50,  4, 1),
++	MTK_PIN_DRV_GRP(74,  0xb50,  4, 1),
++	MTK_PIN_DRV_GRP(79,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(80,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(81,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(82,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(83,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(84,  0xb50,  8, 1),
++	MTK_PIN_DRV_GRP(85,  0xce0,  0, 2),
++	MTK_PIN_DRV_GRP(86,  0xcd0,  0, 2),
++	MTK_PIN_DRV_GRP(87,  0xcf0,  0, 2),
++	MTK_PIN_DRV_GRP(88,  0xcf0,  0, 2),
++	MTK_PIN_DRV_GRP(89,  0xcf0,  0, 2),
++	MTK_PIN_DRV_GRP(90,  0xcf0,  0, 2),
++	MTK_PIN_DRV_GRP(117, 0xb60, 12, 1),
++	MTK_PIN_DRV_GRP(118, 0xb60, 12, 1),
++	MTK_PIN_DRV_GRP(119, 0xb60, 12, 1),
++	MTK_PIN_DRV_GRP(120, 0xb60, 12, 1),
++	MTK_PIN_DRV_GRP(121, 0xc80,  0, 2),
++	MTK_PIN_DRV_GRP(122, 0xc70,  0, 2),
++	MTK_PIN_DRV_GRP(123, 0xc90,  0, 2),
++	MTK_PIN_DRV_GRP(124, 0xc90,  0, 2),
++	MTK_PIN_DRV_GRP(125, 0xc90,  0, 2),
++	MTK_PIN_DRV_GRP(126, 0xc90,  0, 2),
++	MTK_PIN_DRV_GRP(127, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(128, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(129, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(130, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(131, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(132, 0xc10,  0, 2),
++	MTK_PIN_DRV_GRP(133, 0xc00,  0, 2),
++	MTK_PIN_DRV_GRP(134, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(135, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(136, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(137, 0xc20,  0, 2),
++	MTK_PIN_DRV_GRP(142, 0xb50,  0, 2),
++	MTK_PIN_DRV_GRP(143, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(144, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(145, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(146, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(147, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(148, 0xf10,  0, 2),
++	MTK_PIN_DRV_GRP(149, 0xf00,  0, 2),
++	MTK_PIN_DRV_GRP(150, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(151, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(152, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(153, 0xf20,  0, 2),
++	MTK_PIN_DRV_GRP(154, 0xf20,  0, 2),
++};
++
++static const struct mtk_pin_spec_pupd_set_samereg mt8163_spec_pupd[] = {
++	MTK_PIN_PUPD_SPEC_SR(33,  0xd90, 2, 1, 0),	/* KPROW0 */
++	MTK_PIN_PUPD_SPEC_SR(34,  0xd90, 6, 5, 4),	/* KPROW1 */
++	MTK_PIN_PUPD_SPEC_SR(35,  0xd90, 10, 9, 8),	/* KPROW2 */
++	MTK_PIN_PUPD_SPEC_SR(36,  0xda0, 2, 1, 0),	/* KPCOL0 */
++	MTK_PIN_PUPD_SPEC_SR(37,  0xda0, 6, 5, 4),	/* KPCOL1 */
++	MTK_PIN_PUPD_SPEC_SR(38,  0xda0, 10, 9, 8),	/* KPCOL2 */
++	MTK_PIN_PUPD_SPEC_SR(46,  0xdb0, 2, 1, 0),	/* EINT14 */
++	MTK_PIN_PUPD_SPEC_SR(47,  0xdb0, 6, 5, 4),	/* EINT15 */
++	MTK_PIN_PUPD_SPEC_SR(48,  0xdb0, 10, 9, 8),	/* EINT16 */
++	MTK_PIN_PUPD_SPEC_SR(49,  0xdb0, 14, 13, 12),	/* EINT17 */
++	MTK_PIN_PUPD_SPEC_SR(85,  0xce0, 8, 9, 10),	/* MSDC2_CMD */
++	MTK_PIN_PUPD_SPEC_SR(86,  0xcd0, 8, 9, 10),	/* MSDC2_CLK */
++	MTK_PIN_PUPD_SPEC_SR(87,  0xd00, 0, 1, 2),	/* MSDC2_DAT0 */
++	MTK_PIN_PUPD_SPEC_SR(88,  0xd00, 4, 5, 6),	/* MSDC2_DAT1 */
++	MTK_PIN_PUPD_SPEC_SR(89,  0xd00, 8, 9, 10),	/* MSDC2_DAT2 */
++	MTK_PIN_PUPD_SPEC_SR(90,  0xd00, 12, 13, 14),	/* MSDC2_DAT3 */
++	MTK_PIN_PUPD_SPEC_SR(121, 0xc80, 8, 9, 10),	/* MSDC1_CMD */
++	MTK_PIN_PUPD_SPEC_SR(122, 0xc70, 8, 9, 10),	/* MSDC1_CLK */
++	MTK_PIN_PUPD_SPEC_SR(123, 0xca0, 0, 1, 2),	/* MSDC1_DAT0 */
++	MTK_PIN_PUPD_SPEC_SR(124, 0xca0, 4, 5, 6),	/* MSDC1_DAT1 */
++	MTK_PIN_PUPD_SPEC_SR(125, 0xca0, 8, 9, 10),	/* MSDC1_DAT2 */
++	MTK_PIN_PUPD_SPEC_SR(126, 0xca0, 12, 13, 14),	/* MSDC1_DAT3 */
++	MTK_PIN_PUPD_SPEC_SR(127, 0xc40, 12, 13, 14),	/* MSDC0_DAT7 */
++	MTK_PIN_PUPD_SPEC_SR(128, 0xc40, 8, 9, 10),	/* MSDC0_DAT6 */
++	MTK_PIN_PUPD_SPEC_SR(129, 0xc40, 4, 5, 6),	/* MSDC0_DAT5 */
++	MTK_PIN_PUPD_SPEC_SR(130, 0xc40, 0, 1, 2),	/* MSDC0_DAT4 */
++	MTK_PIN_PUPD_SPEC_SR(131, 0xc50, 0, 1, 2),	/* MSDC0_RSTB */
++	MTK_PIN_PUPD_SPEC_SR(132, 0xc10, 8, 9, 10),	/* MSDC0_CMD */
++	MTK_PIN_PUPD_SPEC_SR(133, 0xc00, 8, 9, 10),	/* MSDC0_CLK */
++	MTK_PIN_PUPD_SPEC_SR(134, 0xc30, 12, 13, 14),	/* MSDC0_DAT3 */
++	MTK_PIN_PUPD_SPEC_SR(135, 0xc30, 8, 9, 10),	/* MSDC0_DAT2 */
++	MTK_PIN_PUPD_SPEC_SR(136, 0xc30, 4, 5, 6),	/* MSDC0_DAT1 */
++	MTK_PIN_PUPD_SPEC_SR(137, 0xc30, 0, 1, 2),	/* MSDC0_DAT0 */
++	MTK_PIN_PUPD_SPEC_SR(142, 0xdc0, 2, 1, 0),	/* EINT21 */
++	MTK_PIN_PUPD_SPEC_SR(143, 0xf40, 12, 13, 14),	/* MSDC3_DAT7 */
++	MTK_PIN_PUPD_SPEC_SR(144, 0xf40, 8, 9, 10),	/* MSDC3_DAT6 */
++	MTK_PIN_PUPD_SPEC_SR(145, 0xf40, 4, 5, 6),	/* MSDC3_DAT5 */
++	MTK_PIN_PUPD_SPEC_SR(146, 0xf40, 0, 1, 2),	/* MSDC3_DAT4 */
++	MTK_PIN_PUPD_SPEC_SR(147, 0xf50, 0, 1, 2),	/* MSDC3_RSTB */
++	MTK_PIN_PUPD_SPEC_SR(148, 0xf10, 8, 9, 10),	/* MSDC3_CMD */
++	MTK_PIN_PUPD_SPEC_SR(149, 0xf00, 8, 9, 10),	/* MSDC3_CLK */
++	MTK_PIN_PUPD_SPEC_SR(150, 0xf30, 12, 13, 14),	/* MSDC3_DAT3 */
++	MTK_PIN_PUPD_SPEC_SR(151, 0xf30, 8, 9, 10),	/* MSDC3_DAT2 */
++	MTK_PIN_PUPD_SPEC_SR(152, 0xf30, 4, 5, 6),	/* MSDC3_DAT1 */
++	MTK_PIN_PUPD_SPEC_SR(153, 0xf30, 0, 1, 2),	/* MSDC3_DAT0 */
++	MTK_PIN_PUPD_SPEC_SR(154, 0xf50, 4, 5, 6),	/* MSDC3_DSL */
++};
++
++static const struct mtk_pin_ies_smt_set mt8163_ies_set[] = {
++	MTK_PIN_IES_SMT_SPEC(0, 9, 0x900, 0),
++	MTK_PIN_IES_SMT_SPEC(10, 13, 0x900, 1),
++	MTK_PIN_IES_SMT_SPEC(14, 28, 0x900, 2),
++	MTK_PIN_IES_SMT_SPEC(29, 32, 0x900, 3),
++	MTK_PIN_IES_SMT_SPEC(33, 33, 0x910, 11),
++	MTK_PIN_IES_SMT_SPEC(34, 38, 0x900, 10),
++	MTK_PIN_IES_SMT_SPEC(39, 42, 0x900, 11),
++	MTK_PIN_IES_SMT_SPEC(43, 45, 0x900, 12),
++	MTK_PIN_IES_SMT_SPEC(46, 49, 0x900, 13),
++	MTK_PIN_IES_SMT_SPEC(50, 52, 0x910, 10),
++	MTK_PIN_IES_SMT_SPEC(53, 56, 0x900, 14),
++	MTK_PIN_IES_SMT_SPEC(57, 58, 0x910, 0),
++	MTK_PIN_IES_SMT_SPEC(59, 65, 0x910, 2),
++	MTK_PIN_IES_SMT_SPEC(66, 71, 0x910, 3),
++	MTK_PIN_IES_SMT_SPEC(72, 74, 0x910, 4),
++	MTK_PIN_IES_SMT_SPEC(75, 76, 0x900, 15),
++	MTK_PIN_IES_SMT_SPEC(77, 78, 0x910, 1),
++	MTK_PIN_IES_SMT_SPEC(79, 82, 0x910, 5),
++	MTK_PIN_IES_SMT_SPEC(83, 84, 0x910, 6),
++	MTK_PIN_IES_SMT_SPEC(87, 87, 0xcf0, 4),
++	MTK_PIN_IES_SMT_SPEC(117, 120, 0x910, 7),
++	MTK_PIN_IES_SMT_SPEC(121, 121, 0xc80, 4),
++	MTK_PIN_IES_SMT_SPEC(122, 122, 0xc70, 4),
++	MTK_PIN_IES_SMT_SPEC(123, 126, 0xc90, 4),
++	MTK_PIN_IES_SMT_SPEC(127, 131, 0xc20, 4),
++	MTK_PIN_IES_SMT_SPEC(132, 132, 0xc10, 4),
++	MTK_PIN_IES_SMT_SPEC(133, 133, 0xc00, 4),
++	MTK_PIN_IES_SMT_SPEC(134, 137, 0xc20, 4),
++	MTK_PIN_IES_SMT_SPEC(138, 141, 0x910, 9),
++	MTK_PIN_IES_SMT_SPEC(142, 142, 0x900, 13),
++	MTK_PIN_IES_SMT_SPEC(143, 147, 0xf20, 4),
++	MTK_PIN_IES_SMT_SPEC(148, 148, 0xf10, 4),
++	MTK_PIN_IES_SMT_SPEC(149, 149, 0xf00, 4),
++	MTK_PIN_IES_SMT_SPEC(150, 153, 0xf20, 4),
++	MTK_PIN_IES_SMT_SPEC(154, 154, 0xf20, 7),
++};
++
++static const struct mtk_pin_ies_smt_set mt8163_smt_set[] = {
++	MTK_PIN_IES_SMT_SPEC(0, 9, 0x920, 0),
++	MTK_PIN_IES_SMT_SPEC(10, 13, 0x920, 1),
++	MTK_PIN_IES_SMT_SPEC(14, 28, 0x920, 2),
++	MTK_PIN_IES_SMT_SPEC(29, 32, 0x920, 3),
++	MTK_PIN_IES_SMT_SPEC(33, 33, 0x930, 11),
++	MTK_PIN_IES_SMT_SPEC(34, 38, 0x920, 10),
++	MTK_PIN_IES_SMT_SPEC(39, 42, 0x920, 11),
++	MTK_PIN_IES_SMT_SPEC(43, 45, 0x920, 12),
++	MTK_PIN_IES_SMT_SPEC(46, 49, 0x920, 13),
++	MTK_PIN_IES_SMT_SPEC(50, 52, 0x930, 10),
++	MTK_PIN_IES_SMT_SPEC(53, 56, 0x920, 14),
++	MTK_PIN_IES_SMT_SPEC(57, 58, 0x930, 0),
++	MTK_PIN_IES_SMT_SPEC(59, 65, 0x930, 2),
++	MTK_PIN_IES_SMT_SPEC(66, 71, 0x930, 3),
++	MTK_PIN_IES_SMT_SPEC(72, 74, 0x930, 4),
++	MTK_PIN_IES_SMT_SPEC(75, 76, 0x920, 15),
++	MTK_PIN_IES_SMT_SPEC(77, 78, 0x930, 1),
++	MTK_PIN_IES_SMT_SPEC(79, 82, 0x930, 5),
++	MTK_PIN_IES_SMT_SPEC(83, 84, 0x930, 6),
++	MTK_PIN_IES_SMT_SPEC(85, 85, 0xce0, 11),
++	MTK_PIN_IES_SMT_SPEC(86, 86, 0xcd0, 11),
++	MTK_PIN_IES_SMT_SPEC(87, 87, 0xd00, 3),
++	MTK_PIN_IES_SMT_SPEC(88, 88, 0xd00, 7),
++	MTK_PIN_IES_SMT_SPEC(89, 89, 0xd00, 11),
++	MTK_PIN_IES_SMT_SPEC(90, 90, 0xd00, 15),
++	MTK_PIN_IES_SMT_SPEC(117, 120, 0x930, 7),
++	MTK_PIN_IES_SMT_SPEC(121, 121, 0xc80, 11),
++	MTK_PIN_IES_SMT_SPEC(122, 122, 0xc70, 11),
++	MTK_PIN_IES_SMT_SPEC(123, 123, 0xca0, 3),
++	MTK_PIN_IES_SMT_SPEC(124, 124, 0xca0, 7),
++	MTK_PIN_IES_SMT_SPEC(125, 125, 0xca0, 11),
++	MTK_PIN_IES_SMT_SPEC(126, 126, 0xca0, 15),
++	MTK_PIN_IES_SMT_SPEC(127, 127, 0xc40, 15),
++	MTK_PIN_IES_SMT_SPEC(128, 128, 0xc40, 11),
++	MTK_PIN_IES_SMT_SPEC(129, 129, 0xc40, 7),
++	MTK_PIN_IES_SMT_SPEC(130, 130, 0xc40, 3),
++	MTK_PIN_IES_SMT_SPEC(131, 131, 0xc50, 3),
++	MTK_PIN_IES_SMT_SPEC(132, 132, 0xc10, 11),
++	MTK_PIN_IES_SMT_SPEC(133, 133, 0xc00, 11),
++	MTK_PIN_IES_SMT_SPEC(134, 134, 0xc30, 15),
++	MTK_PIN_IES_SMT_SPEC(135, 135, 0xc30, 11),
++	MTK_PIN_IES_SMT_SPEC(136, 136, 0xc30, 7),
++	MTK_PIN_IES_SMT_SPEC(137, 137, 0xc30, 3),
++	MTK_PIN_IES_SMT_SPEC(138, 141, 0x930, 9),
++	MTK_PIN_IES_SMT_SPEC(142, 142, 0x920, 13),
++	MTK_PIN_IES_SMT_SPEC(143, 143, 0xf40, 15),
++	MTK_PIN_IES_SMT_SPEC(144, 144, 0xf40, 11),
++	MTK_PIN_IES_SMT_SPEC(145, 145, 0xf40, 7),
++	MTK_PIN_IES_SMT_SPEC(146, 146, 0xf40, 3),
++	MTK_PIN_IES_SMT_SPEC(147, 147, 0xf50, 3),
++	MTK_PIN_IES_SMT_SPEC(148, 148, 0xf10, 11),
++	MTK_PIN_IES_SMT_SPEC(149, 149, 0xf00, 11),
++	MTK_PIN_IES_SMT_SPEC(150, 150, 0xf30, 15),
++	MTK_PIN_IES_SMT_SPEC(151, 151, 0xf30, 11),
++	MTK_PIN_IES_SMT_SPEC(152, 152, 0xf30, 7),
++	MTK_PIN_IES_SMT_SPEC(153, 153, 0xf30, 3),
++	MTK_PIN_IES_SMT_SPEC(154, 154, 0xf50, 3),
++};
++
++static const struct mtk_pinctrl_devdata mt8163_pinctrl_data = {
++	.pins = mtk_pins_mt8163,
++	.npins = ARRAY_SIZE(mtk_pins_mt8163),
++	.grp_desc = mt8163_drv_grp,
++	.n_grp_cls = ARRAY_SIZE(mt8163_drv_grp),
++	.pin_drv_grp = mt8163_pin_drv,
++	.n_pin_drv_grps = ARRAY_SIZE(mt8163_pin_drv),
++	.spec_ies = mt8163_ies_set,
++	.n_spec_ies = ARRAY_SIZE(mt8163_ies_set),
++	.spec_pupd = mt8163_spec_pupd,
++	.n_spec_pupd = ARRAY_SIZE(mt8163_spec_pupd),
++	.spec_smt = mt8163_smt_set,
++	.n_spec_smt = ARRAY_SIZE(mt8163_smt_set),
++	.spec_pull_set = mtk_pctrl_spec_pull_set_samereg,
++	.spec_ies_smt_set = mtk_pconf_spec_set_ies_smt_range,
++	.dir_offset = 0x0000,
++	.pullen_offset = 0x0100,
++	.pullsel_offset = 0x0200,
++	.dout_offset = 0x0400,
++	.din_offset = 0x0500,
++	.pinmux_offset = 0x0600,
++	.type1_start = 155,
++	.type1_end = 155,
++	.port_shf = 4,
++	.port_mask = 0xf,
++	.port_align = 4,
++	.mode_mask = 0xf,
++	.mode_per_reg = 5,
++	.mode_shf = 4,
++	.eint_hw = {
++		.port_mask = 7,
++		.ports = 6,
++		.ap_num = 169,
++		.db_cnt = 64,
++		.db_time = debounce_time_mt2701,
++	},
++};
++
++static const struct of_device_id mt8163_pctrl_match[] = {
++	{ .compatible = "mediatek,mt8163-pinctrl", .data = &mt8163_pinctrl_data },
++	{ }
++};
++
++static struct platform_driver mtk_pinctrl_driver = {
++	.probe = mtk_pctrl_common_probe,
++	.driver = {
++		.name = "mediatek-mt8163-pinctrl",
++		.of_match_table = mt8163_pctrl_match,
++	},
++};
++
++static int __init mtk_pinctrl_init(void)
++{
++	return platform_driver_register(&mtk_pinctrl_driver);
++}
++arch_initcall(mtk_pinctrl_init);
+--- a/drivers/pinctrl/mediatek/pinctrl-mtk-mt8163.h
++++ b/drivers/pinctrl/mediatek/pinctrl-mtk-mt8163.h
+@@ -0,0 +1,1445 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2015 MediaTek Inc.
++ */
++#ifndef __PINCTRL_MTK_MT8163_H
++#define __PINCTRL_MTK_MT8163_H
++
++#include <linux/pinctrl/pinctrl.h>
++#include "pinctrl-mtk-common.h"
++
++static const struct mtk_desc_pin mtk_pins_mt8163[] = {
++	MTK_PIN(
++		PINCTRL_PIN(0, "PWRAP_SPI0_MI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 22),
++		MTK_FUNCTION(0, "GPIO0"),
++		MTK_FUNCTION(1, "PWRAP_SPI0_MO"),
++		MTK_FUNCTION(2, "PWRAP_SPI0_MI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(1, "PWRAP_SPI0_MO"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 23),
++		MTK_FUNCTION(0, "GPIO1"),
++		MTK_FUNCTION(1, "PWRAP_SPI0_MI"),
++		MTK_FUNCTION(2, "PWRAP_SPI0_MO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(2, "PWRAP_INT"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 24),
++		MTK_FUNCTION(0, "GPIO2"),
++		MTK_FUNCTION(1, "I2S0_MCK"),
++		MTK_FUNCTION(4, "I2S1_MCK"),
++		MTK_FUNCTION(5, "I2S2_MCK"),
++		MTK_FUNCTION(6, "I2S3_MCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(3, "PWRAP_SPI0_CK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 25),
++		MTK_FUNCTION(0, "GPIO3"),
++		MTK_FUNCTION(1, "PWRAP_SPI0_CK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(4, "PWRAP_SPI0_CSN"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 26),
++		MTK_FUNCTION(0, "GPIO4"),
++		MTK_FUNCTION(1, "PWRAP_SPI0_CSN")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(5, "PWRAP_SPI0_CK2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 27),
++		MTK_FUNCTION(0, "GPIO5"),
++		MTK_FUNCTION(1, "I2S0_MCK"),
++		MTK_FUNCTION(2, "ANT_SEL1"),
++		MTK_FUNCTION(3, "VDEC_TEST_CK"),
++		MTK_FUNCTION(4, "I2S1_MCK"),
++		MTK_FUNCTION(5, "I2S2_MCK"),
++		MTK_FUNCTION(6, "I2S3_MCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[0]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(6, "PWRAP_SPI0_CSN2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 28),
++		MTK_FUNCTION(0, "GPIO6"),
++		MTK_FUNCTION(1, "I2S0_MCK"),
++		MTK_FUNCTION(2, "ANT_SEL0"),
++		MTK_FUNCTION(3, "MM_TEST_CK"),
++		MTK_FUNCTION(4, "I2S1_MCK"),
++		MTK_FUNCTION(5, "I2S2_MCK"),
++		MTK_FUNCTION(6, "I2S3_MCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[1]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(7, "AUD_CLK_MOSI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 29),
++		MTK_FUNCTION(0, "GPIO7"),
++		MTK_FUNCTION(1, "AUD_CLK_MOSI"),
++		MTK_FUNCTION(2, "I2S2_BCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(8, "AUD_DAT_MISO"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 30),
++		MTK_FUNCTION(0, "GPIO8"),
++		MTK_FUNCTION(1, "AUD_DAT_MISO"),
++		MTK_FUNCTION(2, "I2S2_DI"),
++		MTK_FUNCTION(3, "AUD_DAT_MOSI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(9, "AUD_DAT_MOSI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 31),
++		MTK_FUNCTION(0, "GPIO9"),
++		MTK_FUNCTION(1, "AUD_DAT_MOSI"),
++		MTK_FUNCTION(2, "I2S2_LRCK"),
++		MTK_FUNCTION(3, "AUD_DAT_MISO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(10, "RTC32K_CK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 32),
++		MTK_FUNCTION(0, "GPIO10"),
++		MTK_FUNCTION(1, "RTC32K_CK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(11, "WATCHDOG"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 33),
++		MTK_FUNCTION(0, "GPIO11"),
++		MTK_FUNCTION(1, "WATCHDOG")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(12, "SRCLKENA"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 34),
++		MTK_FUNCTION(0, "GPIO12"),
++		MTK_FUNCTION(1, "SRCLKENA0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(13, "SRCLKENAI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 35),
++		MTK_FUNCTION(0, "GPIO13"),
++		MTK_FUNCTION(1, "SRCLKENAI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(14, "URXD2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 36),
++		MTK_FUNCTION(0, "GPIO14"),
++		MTK_FUNCTION(1, "URXD2"),
++		MTK_FUNCTION(2, "DPI_D5"),
++		MTK_FUNCTION(3, "UTXD2"),
++		MTK_FUNCTION(4, "DBG_SCL"),
++		MTK_FUNCTION(5, "SRCCLKENAI2"),
++		MTK_FUNCTION(6, "I2S0_MCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(15, "UTXD2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 37),
++		MTK_FUNCTION(0, "GPIO15"),
++		MTK_FUNCTION(1, "UTXD2"),
++		MTK_FUNCTION(2, "DPI_HSYNC"),
++		MTK_FUNCTION(3, "URXD2"),
++		MTK_FUNCTION(4, "DBG_SDA"),
++		MTK_FUNCTION(6, "I2S1_MCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(16, "URXD3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 38),
++		MTK_FUNCTION(0, "GPIO16"),
++		MTK_FUNCTION(1, "URXD3"),
++		MTK_FUNCTION(2, "DPI_DE"),
++		MTK_FUNCTION(3, "UTXD3"),
++		MTK_FUNCTION(4, "UCTS2"),
++		MTK_FUNCTION(5, "PWM_A"),
++		MTK_FUNCTION(6, "I2S2_MCK"),
++		MTK_FUNCTION(7, "TP_URXD3_AO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(17, "UTXD3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 39),
++		MTK_FUNCTION(0, "GPIO17"),
++		MTK_FUNCTION(1, "UTXD3"),
++		MTK_FUNCTION(2, "DPI_VSYNC"),
++		MTK_FUNCTION(3, "URXD3"),
++		MTK_FUNCTION(4, "URTS2"),
++		MTK_FUNCTION(5, "PWM_B"),
++		MTK_FUNCTION(6, "I2S3_MCK"),
++		MTK_FUNCTION(7, "TP_UTXD3_AO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(18, "PCM_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 40),
++		MTK_FUNCTION(0, "GPIO18"),
++		MTK_FUNCTION(1, "PCM0_CLK"),
++		MTK_FUNCTION(2, "DPI_D4"),
++		MTK_FUNCTION(3, "I2S0_BCK0"),
++		MTK_FUNCTION(4, "I2S3_BCK"),
++		MTK_FUNCTION(5, "CONN_DSP_JCK"),
++		MTK_FUNCTION(6, "IR"),
++		MTK_FUNCTION(7, "DBG_MON_A[0]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(19, "PCM_SYNC"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 41),
++		MTK_FUNCTION(0, "GPIO19"),
++		MTK_FUNCTION(1, "PCM0_SYNC"),
++		MTK_FUNCTION(2, "DPI_D3"),
++		MTK_FUNCTION(3, "I2S0_LRCK"),
++		MTK_FUNCTION(4, "I2S3_LRCK"),
++		MTK_FUNCTION(5, "CONN_DSP_JINTP"),
++		MTK_FUNCTION(6, "EXT_COL"),
++		MTK_FUNCTION(7, "DBG_MON_A[1]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(20, "PCM_RX"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 42),
++		MTK_FUNCTION(0, "GPIO20"),
++		MTK_FUNCTION(1, "PCM0_DI"),
++		MTK_FUNCTION(2, "DPI_D1"),
++		MTK_FUNCTION(3, "I2S0_DI"),
++		MTK_FUNCTION(4, "PCM0_DO"),
++		MTK_FUNCTION(5, "CONN_DSP_JDI"),
++		MTK_FUNCTION(6, "EXT_MDIO"),
++		MTK_FUNCTION(7, "DBG_MON_A[2]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(21, "PCM_TX"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 43),
++		MTK_FUNCTION(0, "GPIO21"),
++		MTK_FUNCTION(1, "PCM0_DO"),
++		MTK_FUNCTION(2, "DPI_D2"),
++		MTK_FUNCTION(3, "I2S3_DO"),
++		MTK_FUNCTION(4, "PCM0_DI"),
++		MTK_FUNCTION(5, "CONN_DSP_JMS"),
++		MTK_FUNCTION(6, "EXT_MDC"),
++		MTK_FUNCTION(7, "DBG_MON_A[3]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(22, "EINT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 0),
++		MTK_FUNCTION(0, "GPIO22"),
++		MTK_FUNCTION(1, "PWM_B"),
++		MTK_FUNCTION(2, "DPI_CK"),
++		MTK_FUNCTION(4, "EXT_TXD0"),
++		MTK_FUNCTION(5, "CONN_DSP_JDO"),
++		MTK_FUNCTION(7, "DBG_MON_A[4]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(23, "EINT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 1),
++		MTK_FUNCTION(0, "GPIO23"),
++		MTK_FUNCTION(1, "PWM_C"),
++		MTK_FUNCTION(2, "DPI_D12"),
++		MTK_FUNCTION(4, "EXT_TXD1"),
++		MTK_FUNCTION(5, "CONN_MCU_TDO"),
++		MTK_FUNCTION(7, "DBG_MON_A[5]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(24, "EINT2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 2),
++		MTK_FUNCTION(0, "GPIO24"),
++		MTK_FUNCTION(1, "CLKM0"),
++		MTK_FUNCTION(2, "DPI_D13"),
++		MTK_FUNCTION(4, "EXT_TXD2"),
++		MTK_FUNCTION(5, "CONN_MCU_DBGACK_N"),
++		MTK_FUNCTION(7, "DBG_MON_A[6]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(25, "EINT3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 3),
++		MTK_FUNCTION(0, "GPIO25"),
++		MTK_FUNCTION(1, "CLKM1"),
++		MTK_FUNCTION(2, "DPI_D14"),
++		MTK_FUNCTION(3, "SPI_MI"),
++		MTK_FUNCTION(4, "EXT_TXD3"),
++		MTK_FUNCTION(5, "CONN_MCU_DBGI_N"),
++		MTK_FUNCTION(7, "DBG_MON_A[7]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(26, "EINT4"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 4),
++		MTK_FUNCTION(0, "GPIO26"),
++		MTK_FUNCTION(1, "CLKM2"),
++		MTK_FUNCTION(2, "DPI_D15"),
++		MTK_FUNCTION(3, "SPI_MO"),
++		MTK_FUNCTION(4, "EXT_TXC"),
++		MTK_FUNCTION(5, "CONN_MCU_TCK0"),
++		MTK_FUNCTION(6, "CONN_MCU_AICE_JCKC"),
++		MTK_FUNCTION(7, "DBG_MON_A[8]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(27, "EINT5"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 5),
++		MTK_FUNCTION(0, "GPIO27"),
++		MTK_FUNCTION(1, "UCTS2"),
++		MTK_FUNCTION(2, "DPI_D16"),
++		MTK_FUNCTION(3, "SPI_CSB"),
++		MTK_FUNCTION(4, "EXT_RXER"),
++		MTK_FUNCTION(5, "CONN_MCU_TDI"),
++		MTK_FUNCTION(7, "DBG_MON_A[9]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(28, "EINT6"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 6),
++		MTK_FUNCTION(0, "GPIO28"),
++		MTK_FUNCTION(1, "URTS2"),
++		MTK_FUNCTION(2, "DPI_D17"),
++		MTK_FUNCTION(3, "SPI_CLK"),
++		MTK_FUNCTION(4, "EXT_RXC"),
++		MTK_FUNCTION(5, "CONN_MCU_TRST_B"),
++		MTK_FUNCTION(7, "DBG_MON_A[10]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(29, "EINT7"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 7),
++		MTK_FUNCTION(0, "GPIO29"),
++		MTK_FUNCTION(1, "UCTS3"),
++		MTK_FUNCTION(2, "DPI_D6"),
++		MTK_FUNCTION(3, "SDA1_0"),
++		MTK_FUNCTION(4, "EXT_RXDV"),
++		MTK_FUNCTION(5, "CONN_MCU_TMS"),
++		MTK_FUNCTION(6, "CONN_MCU_AICE_JMSC"),
++		MTK_FUNCTION(7, "DBG_MON_A[11]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(30, "EINT8"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 8),
++		MTK_FUNCTION(0, "GPIO30"),
++		MTK_FUNCTION(1, "URTS3"),
++		MTK_FUNCTION(2, "CLKM3"),
++		MTK_FUNCTION(3, "SCL1_0"),
++		MTK_FUNCTION(4, "EXT_RXD0"),
++		MTK_FUNCTION(5, "ANT_SEL0"),
++		MTK_FUNCTION(6, "DPI_D7"),
++		MTK_FUNCTION(7, "DBG_MON_B[2]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(31, "EINT9"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 9),
++		MTK_FUNCTION(0, "GPIO31"),
++		MTK_FUNCTION(1, "CLKM4"),
++		MTK_FUNCTION(2, "SDA2_0"),
++		MTK_FUNCTION(3, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(4, "EXT_RXD1"),
++		MTK_FUNCTION(5, "ANT_SEL1"),
++		MTK_FUNCTION(6, "DPI_D8"),
++		MTK_FUNCTION(7, "DBG_MON_B[3]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(32, "EINT10"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 10),
++		MTK_FUNCTION(0, "GPIO32"),
++		MTK_FUNCTION(1, "CLKM5"),
++		MTK_FUNCTION(2, "SCL2_0"),
++		MTK_FUNCTION(3, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(4, "EXT_RXD2"),
++		MTK_FUNCTION(5, "ANT_SEL2"),
++		MTK_FUNCTION(6, "DPI_D9"),
++		MTK_FUNCTION(7, "DBG_MON_B[4]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(33, "KPROW0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 44),
++		MTK_FUNCTION(0, "GPIO33"),
++		MTK_FUNCTION(1, "KPROW0"),
++		MTK_FUNCTION(4, "IMG_TEST_CK"),
++		MTK_FUNCTION(7, "DBG_MON_A[12]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(34, "KPROW1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 45),
++		MTK_FUNCTION(0, "GPIO34"),
++		MTK_FUNCTION(1, "KPROW1"),
++		MTK_FUNCTION(2, "IDDIG"),
++		MTK_FUNCTION(3, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(4, "MFG_TEST_CK"),
++		MTK_FUNCTION(7, "DBG_MON_B[5]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(35, "KPROW2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 46),
++		MTK_FUNCTION(0, "GPIO35"),
++		MTK_FUNCTION(1, "KPROW2"),
++		MTK_FUNCTION(2, "USB_DRVVBUS"),
++		MTK_FUNCTION(3, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(4, "CONN_TEST_CK"),
++		MTK_FUNCTION(7, "DBG_MON_B[6]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(36, "KPCOL0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 47),
++		MTK_FUNCTION(0, "GPIO36"),
++		MTK_FUNCTION(1, "KPCOL0"),
++		MTK_FUNCTION(7, "DBG_MON_A[13]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(37, "KPCOL1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 48),
++		MTK_FUNCTION(0, "GPIO37"),
++		MTK_FUNCTION(1, "KPCOL1"),
++		MTK_FUNCTION(4, "MD32_JTAG_TRST"),
++		MTK_FUNCTION(7, "DBG_MON_B[7]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(38, "KPCOL2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 49),
++		MTK_FUNCTION(0, "GPIO38"),
++		MTK_FUNCTION(1, "KPCOL2"),
++		MTK_FUNCTION(2, "IDDIG"),
++		MTK_FUNCTION(3, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(7, "DBG_MON_B[8]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(39, "JTMS"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 50),
++		MTK_FUNCTION(0, "GPIO39"),
++		MTK_FUNCTION(1, "JTMS"),
++		MTK_FUNCTION(2, "CONN_MCU_TMS"),
++		MTK_FUNCTION(3, "CONN_MCU_AICE_JMSC"),
++		MTK_FUNCTION(4, "MD32_JTAG_TMS"),
++		MTK_FUNCTION(5, "DFD_TMS_XI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(40, "JTCK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 51),
++		MTK_FUNCTION(0, "GPIO40"),
++		MTK_FUNCTION(1, "JTCK"),
++		MTK_FUNCTION(2, "CONN_MCU_TCK1"),
++		MTK_FUNCTION(3, "CONN_MCU_AICE_JCKC"),
++		MTK_FUNCTION(4, "MD32_JTAG_TCK"),
++		MTK_FUNCTION(5, "DFD_TCK_XI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(41, "JTDI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 52),
++		MTK_FUNCTION(0, "GPIO41"),
++		MTK_FUNCTION(1, "JTDI"),
++		MTK_FUNCTION(2, "CONN_MCU_TDI"),
++		MTK_FUNCTION(4, "MD32_JTAG_TDI"),
++		MTK_FUNCTION(5, "DFD_TDI_XI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(42, "JTDO"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 53),
++		MTK_FUNCTION(0, "GPIO42"),
++		MTK_FUNCTION(1, "JTDO"),
++		MTK_FUNCTION(2, "CONN_MCU_TDO"),
++		MTK_FUNCTION(4, "MD32_JTAG_TDO"),
++		MTK_FUNCTION(5, "DFD_TDO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(43, "EINT11"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 11),
++		MTK_FUNCTION(0, "GPIO43"),
++		MTK_FUNCTION(1, "CLKM4"),
++		MTK_FUNCTION(2, "PWM_C"),
++		MTK_FUNCTION(4, "ANT_SEL3"),
++		MTK_FUNCTION(5, "DPI_D10"),
++		MTK_FUNCTION(6, "EXT_RXD3"),
++		MTK_FUNCTION(7, "DBG_MON_B[9]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(44, "EINT12"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 12),
++		MTK_FUNCTION(0, "GPIO44"),
++		MTK_FUNCTION(1, "CLKM5"),
++		MTK_FUNCTION(2, "PWM_A"),
++		MTK_FUNCTION(4, "ANT_SEL4"),
++		MTK_FUNCTION(5, "DPI_D11"),
++		MTK_FUNCTION(6, "EXT_TXEN"),
++		MTK_FUNCTION(7, "DBG_MON_B[10]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(45, "EINT13"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 13),
++		MTK_FUNCTION(0, "GPIO45"),
++		MTK_FUNCTION(3, "SFCS0"),
++		MTK_FUNCTION(4, "ANT_SEL5"),
++		MTK_FUNCTION(5, "DPI_D0"),
++		MTK_FUNCTION(6, "SPDIF"),
++		MTK_FUNCTION(7, "DBG_MON_B[11]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(46, "EINT14"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 14),
++		MTK_FUNCTION(0, "GPIO46"),
++		MTK_FUNCTION(1, "TP_GPIO0_AO"),
++		MTK_FUNCTION(2, "I2S1_DO"),
++		MTK_FUNCTION(3, "SFWP_B"),
++		MTK_FUNCTION(4, "ANT_SEL1"),
++		MTK_FUNCTION(5, "CONN_MCU_DBGACK_N"),
++		MTK_FUNCTION(6, "NCLE"),
++		MTK_FUNCTION(7, "DBG_MON_A[14]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(47, "EINT15"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 15),
++		MTK_FUNCTION(0, "GPIO47"),
++		MTK_FUNCTION(1, "TP_GPIO1_AO"),
++		MTK_FUNCTION(2, "I2S1_LRCK"),
++		MTK_FUNCTION(3, "SFOUT"),
++		MTK_FUNCTION(4, "ANT_SEL2"),
++		MTK_FUNCTION(5, "CONN_MCU_DBGI_N"),
++		MTK_FUNCTION(6, "NCEB1"),
++		MTK_FUNCTION(7, "DBG_MON_A[15]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(48, "EINT16"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 16),
++		MTK_FUNCTION(0, "GPIO48"),
++		MTK_FUNCTION(2, "I2S1_BCK"),
++		MTK_FUNCTION(3, "SFHOLD"),
++		MTK_FUNCTION(4, "ANT_SEL3"),
++		MTK_FUNCTION(5, "CONN_MCU_TRST_B"),
++		MTK_FUNCTION(6, "NCEB0"),
++		MTK_FUNCTION(7, "DBG_MON_A[16]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(49, "EINT17"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 17),
++		MTK_FUNCTION(0, "GPIO49"),
++		MTK_FUNCTION(1, "UCTS0"),
++		MTK_FUNCTION(2, "SFIN"),
++		MTK_FUNCTION(3, "CLKM0"),
++		MTK_FUNCTION(4, "IDDIG"),
++		MTK_FUNCTION(5, "ANT_SEL4"),
++		MTK_FUNCTION(6, "NREB"),
++		MTK_FUNCTION(7, "DBG_MON_A[17]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(50, "EINT18"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 18),
++		MTK_FUNCTION(0, "GPIO50"),
++		MTK_FUNCTION(1, "URTS0"),
++		MTK_FUNCTION(2, "CLKM3"),
++		MTK_FUNCTION(3, "I2S3_LRCK"),
++		MTK_FUNCTION(4, "USB_DRVVBUS"),
++		MTK_FUNCTION(5, "ANT_SEL3"),
++		MTK_FUNCTION(6, "I2S2_BCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[12]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(51, "EINT19"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 19),
++		MTK_FUNCTION(0, "GPIO51"),
++		MTK_FUNCTION(1, "UCTS1"),
++		MTK_FUNCTION(3, "I2S3_BCK"),
++		MTK_FUNCTION(4, "CLKM1"),
++		MTK_FUNCTION(5, "ANT_SEL4"),
++		MTK_FUNCTION(6, "I2S2_DI"),
++		MTK_FUNCTION(7, "DBG_MON_B[13]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(52, "EINT20"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 20),
++		MTK_FUNCTION(0, "GPIO52"),
++		MTK_FUNCTION(1, "URTS1"),
++		MTK_FUNCTION(2, "PCM1_DO"),
++		MTK_FUNCTION(3, "I2S3_DO"),
++		MTK_FUNCTION(4, "CLKM2"),
++		MTK_FUNCTION(5, "ANT_SEL5"),
++		MTK_FUNCTION(6, "I2S2_LRCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[14]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(53, "SPI_CS"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 54),
++		MTK_FUNCTION(0, "GPIO53"),
++		MTK_FUNCTION(1, "SPI_CSB"),
++		MTK_FUNCTION(3, "I2S0_DI"),
++		MTK_FUNCTION(4, "I2S2_BCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[15]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(54, "SPI_CK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 55),
++		MTK_FUNCTION(0, "GPIO54"),
++		MTK_FUNCTION(1, "SPI_CLK"),
++		MTK_FUNCTION(3, "I2S0_LRCK"),
++		MTK_FUNCTION(4, "I2S2_DI"),
++		MTK_FUNCTION(7, "DBG_MON_B[16]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(55, "SPI_MI"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 56),
++		MTK_FUNCTION(0, "GPIO55"),
++		MTK_FUNCTION(1, "SPI_MI"),
++		MTK_FUNCTION(2, "SPI_MO"),
++		MTK_FUNCTION(3, "I2S0_BCK1"),
++		MTK_FUNCTION(4, "I2S2_LRCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[17]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(56, "SPI_MO"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 57),
++		MTK_FUNCTION(0, "GPIO56"),
++		MTK_FUNCTION(1, "SPI_MO"),
++		MTK_FUNCTION(2, "SPI_MI"),
++		MTK_FUNCTION(3, "I2S0_MCK"),
++		MTK_FUNCTION(4, "I2S2_MCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[18]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(57, "SDA1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 58),
++		MTK_FUNCTION(0, "GPIO57"),
++		MTK_FUNCTION(1, "SDA1_0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(58, "SCL1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 59),
++		MTK_FUNCTION(0, "GPIO58"),
++		MTK_FUNCTION(1, "SCL1_0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(59, "DISP_PWM"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 60),
++		MTK_FUNCTION(0, "GPIO59"),
++		MTK_FUNCTION(1, "DISP_PWM"),
++		MTK_FUNCTION(2, "PWM_B"),
++		MTK_FUNCTION(7, "DBG_MON_A[18]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(60, "WB_RSTB"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 61),
++		MTK_FUNCTION(0, "GPIO60"),
++		MTK_FUNCTION(1, "WB_RSTB"),
++		MTK_FUNCTION(7, "DBG_MON_A[19]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(61, "F2W_DATA"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 62),
++		MTK_FUNCTION(0, "GPIO61"),
++		MTK_FUNCTION(1, "F2W_DATA"),
++		MTK_FUNCTION(2, "MRG_CLK"),
++		MTK_FUNCTION(7, "DBG_MON_A[20]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(62, "F2W_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 63),
++		MTK_FUNCTION(0, "GPIO62"),
++		MTK_FUNCTION(1, "F2W_CK"),
++		MTK_FUNCTION(2, "MRG_DI"),
++		MTK_FUNCTION(7, "DBG_MON_A[21]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(63, "WB_SCLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 64),
++		MTK_FUNCTION(0, "GPIO63"),
++		MTK_FUNCTION(1, "WB_SCLK"),
++		MTK_FUNCTION(2, "MRG_DO"),
++		MTK_FUNCTION(7, "DBG_MON_A[22]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(64, "WB_SDATA"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 65),
++		MTK_FUNCTION(0, "GPIO64"),
++		MTK_FUNCTION(1, "WB_SDATA"),
++		MTK_FUNCTION(2, "MRG_SYNC"),
++		MTK_FUNCTION(7, "DBG_MON_A[23]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(65, "WB_SEN"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 66),
++		MTK_FUNCTION(0, "GPIO65"),
++		MTK_FUNCTION(1, "WB_SEN"),
++		MTK_FUNCTION(7, "DBG_MON_A[24]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(66, "WB_CRTL0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 67),
++		MTK_FUNCTION(0, "GPIO66"),
++		MTK_FUNCTION(1, "WB_CRTL0"),
++		MTK_FUNCTION(2, "DFD_NTRST_XI"),
++		MTK_FUNCTION(7, "DBG_MON_A[25]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(67, "WB_CRTL1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 68),
++		MTK_FUNCTION(0, "GPIO67"),
++		MTK_FUNCTION(1, "WB_CRTL1"),
++		MTK_FUNCTION(2, "DFD_TMS_XI"),
++		MTK_FUNCTION(7, "DBG_MON_A[26]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(68, "WB_CRTL2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 69),
++		MTK_FUNCTION(0, "GPIO68"),
++		MTK_FUNCTION(1, "WB_CRTL2"),
++		MTK_FUNCTION(2, "DFD_TCK_XI"),
++		MTK_FUNCTION(7, "DBG_MON_A[27]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(69, "WB_CRTL3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 70),
++		MTK_FUNCTION(0, "GPIO69"),
++		MTK_FUNCTION(1, "WB_CRTL3"),
++		MTK_FUNCTION(2, "DFD_TDI_XI"),
++		MTK_FUNCTION(7, "DBG_MON_A[28]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(70, "WB_CRTL4"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 71),
++		MTK_FUNCTION(0, "GPIO70"),
++		MTK_FUNCTION(1, "WB_CRTL4"),
++		MTK_FUNCTION(2, "DFD_TDO"),
++		MTK_FUNCTION(7, "DBG_MON_A[29]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(71, "WB_CRTL5"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 72),
++		MTK_FUNCTION(0, "GPIO71"),
++		MTK_FUNCTION(1, "WB_CRTL5"),
++		MTK_FUNCTION(7, "DBG_MON_A[30]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(72, "I2S_DATA_IN"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 73),
++		MTK_FUNCTION(0, "GPIO72"),
++		MTK_FUNCTION(1, "I2S0_DI"),
++		MTK_FUNCTION(2, "PCM1_DI"),
++		MTK_FUNCTION(3, "I2S3_DO"),
++		MTK_FUNCTION(4, "I2S1_DO"),
++		MTK_FUNCTION(5, "PWM_A"),
++		MTK_FUNCTION(6, "I2S2_BCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[19]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(73, "I2S_LRCK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 74),
++		MTK_FUNCTION(0, "GPIO73"),
++		MTK_FUNCTION(1, "I2S0_LRCK"),
++		MTK_FUNCTION(2, "PCM1_SYNC"),
++		MTK_FUNCTION(3, "I2S3_LRCK"),
++		MTK_FUNCTION(4, "I2S1_LRCK"),
++		MTK_FUNCTION(5, "PWM_B"),
++		MTK_FUNCTION(6, "I2S2_DI"),
++		MTK_FUNCTION(7, "DBG_MON_B[20]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(74, "I2S_BCK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 75),
++		MTK_FUNCTION(0, "GPIO74"),
++		MTK_FUNCTION(1, "I2S0_BCK2"),
++		MTK_FUNCTION(2, "PCM1_CLK"),
++		MTK_FUNCTION(3, "I2S3_BCK"),
++		MTK_FUNCTION(4, "I2S1_BCK"),
++		MTK_FUNCTION(5, "PWM_C"),
++		MTK_FUNCTION(6, "I2S2_LRCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[21]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(75, "SDA0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 76),
++		MTK_FUNCTION(0, "GPIO75"),
++		MTK_FUNCTION(1, "SDA0_0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(76, "SCL0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 77),
++		MTK_FUNCTION(0, "GPIO76"),
++		MTK_FUNCTION(1, "SCL0_0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(77, "SDA2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 78),
++		MTK_FUNCTION(0, "GPIO77"),
++		MTK_FUNCTION(1, "SDA2_0"),
++		MTK_FUNCTION(2, "PWM_B")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(78, "SCL2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 79),
++		MTK_FUNCTION(0, "GPIO78"),
++		MTK_FUNCTION(1, "SCL2_0"),
++		MTK_FUNCTION(2, "PWM_C")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(79, "URXD0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 80),
++		MTK_FUNCTION(0, "GPIO79"),
++		MTK_FUNCTION(1, "URXD0"),
++		MTK_FUNCTION(2, "UTXD0"),
++		MTK_FUNCTION(5, " ")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(80, "UTXD0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 81),
++		MTK_FUNCTION(0, "GPIO80"),
++		MTK_FUNCTION(1, "UTXD0"),
++		MTK_FUNCTION(2, "URXD0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(81, "URXD1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 82),
++		MTK_FUNCTION(0, "GPIO81"),
++		MTK_FUNCTION(1, "URXD1"),
++		MTK_FUNCTION(2, "UTXD1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(82, "UTXD1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 83),
++		MTK_FUNCTION(0, "GPIO82"),
++		MTK_FUNCTION(1, "UTXD1"),
++		MTK_FUNCTION(2, "URXD1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(83, "LCM_RST"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 84),
++		MTK_FUNCTION(0, "GPIO83"),
++		MTK_FUNCTION(1, "LCM_RST"),
++		MTK_FUNCTION(2, "VDAC_CK_XI"),
++		MTK_FUNCTION(7, "DBG_MON_A[31]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(84, "DSI_TE"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 85),
++		MTK_FUNCTION(0, "GPIO84"),
++		MTK_FUNCTION(1, "DSI_TE"),
++		MTK_FUNCTION(7, "DBG_MON_A[32]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(85, "MSDC2_CMD"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 86),
++		MTK_FUNCTION(0, "GPIO85"),
++		MTK_FUNCTION(1, "MSDC2_CMD"),
++		MTK_FUNCTION(2, "ANT_SEL0"),
++		MTK_FUNCTION(3, "SDA1_0"),
++		MTK_FUNCTION(6, "I2S3_BCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[22]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(86, "MSDC2_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 87),
++		MTK_FUNCTION(0, "GPIO86"),
++		MTK_FUNCTION(1, "MSDC2_CLK"),
++		MTK_FUNCTION(2, "ANT_SEL1"),
++		MTK_FUNCTION(3, "SCL1_0"),
++		MTK_FUNCTION(6, "I2S3_LRCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[23]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(87, "MSDC2_DAT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 88),
++		MTK_FUNCTION(0, "GPIO87"),
++		MTK_FUNCTION(1, "MSDC2_DAT0"),
++		MTK_FUNCTION(2, "ANT_SEL2"),
++		MTK_FUNCTION(5, "UTXD0"),
++		MTK_FUNCTION(6, "I2S3_DO"),
++		MTK_FUNCTION(7, "DBG_MON_B[24]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(88, "MSDC2_DAT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 89),
++		MTK_FUNCTION(0, "GPIO88"),
++		MTK_FUNCTION(1, "MSDC2_DAT1"),
++		MTK_FUNCTION(2, "ANT_SEL3"),
++		MTK_FUNCTION(3, "PWM_A"),
++		MTK_FUNCTION(4, "I2S3_MCK"),
++		MTK_FUNCTION(5, "URXD0"),
++		MTK_FUNCTION(6, "PWM_B"),
++		MTK_FUNCTION(7, "DBG_MON_B[25]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(89, "MSDC2_DAT2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 90),
++		MTK_FUNCTION(0, "GPIO89"),
++		MTK_FUNCTION(1, "MSDC2_DAT2"),
++		MTK_FUNCTION(2, "ANT_SEL4"),
++		MTK_FUNCTION(3, "SDA2_0"),
++		MTK_FUNCTION(5, "UTXD1"),
++		MTK_FUNCTION(6, "PWM_C"),
++		MTK_FUNCTION(7, "DBG_MON_B[26]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(90, "MSDC2_DAT3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 91),
++		MTK_FUNCTION(0, "GPIO90"),
++		MTK_FUNCTION(1, "MSDC2_DAT3"),
++		MTK_FUNCTION(2, "ANT_SEL5"),
++		MTK_FUNCTION(3, "SCL2_0"),
++		MTK_FUNCTION(4, "EXT_FRAME_SYNC"),
++		MTK_FUNCTION(5, "URXD1"),
++		MTK_FUNCTION(6, "PWM_A"),
++		MTK_FUNCTION(7, "DBG_MON_B[27]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(91, "TDN3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 92),
++		MTK_FUNCTION(0, "GPI91"),
++		MTK_FUNCTION(1, "TDN3")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(92, "TDP3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 93),
++		MTK_FUNCTION(0, "GPI92"),
++		MTK_FUNCTION(1, "TDP3")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(93, "TDN2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 94),
++		MTK_FUNCTION(0, "GPI93"),
++		MTK_FUNCTION(1, "TDN2")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(94, "TDP2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 95),
++		MTK_FUNCTION(0, "GPI94"),
++		MTK_FUNCTION(1, "TDP2")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(95, "TCN"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 96),
++		MTK_FUNCTION(0, "GPI95"),
++		MTK_FUNCTION(1, "TCN")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(96, "TCP"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 97),
++		MTK_FUNCTION(0, "GPI96"),
++		MTK_FUNCTION(1, "TCP")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(97, "TDN1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 98),
++		MTK_FUNCTION(0, "GPI97"),
++		MTK_FUNCTION(1, "TDN1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(98, "TDP1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 99),
++		MTK_FUNCTION(0, "GPI98"),
++		MTK_FUNCTION(1, "TDP1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(99, "TDN0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 100),
++		MTK_FUNCTION(0, "GPI99"),
++		MTK_FUNCTION(1, "TDN0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(100, "TDP0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 101),
++		MTK_FUNCTION(0, "GPI100"),
++		MTK_FUNCTION(1, "TDP0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(101, "RDN0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 102),
++		MTK_FUNCTION(0, "GPI101"),
++		MTK_FUNCTION(1, "RDN0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(102, "RDP0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 103),
++		MTK_FUNCTION(0, "GPI102"),
++		MTK_FUNCTION(1, "RDP0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(103, "RDN1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 104),
++		MTK_FUNCTION(0, "GPI103"),
++		MTK_FUNCTION(1, "RDN1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(104, "RDP1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 105),
++		MTK_FUNCTION(0, "GPI104"),
++		MTK_FUNCTION(1, "RDP1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(105, "RCN"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 106),
++		MTK_FUNCTION(0, "GPI105"),
++		MTK_FUNCTION(1, "RCN")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(106, "RCP"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 107),
++		MTK_FUNCTION(0, "GPI106"),
++		MTK_FUNCTION(1, "RCP")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(107, "RDN2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 108),
++		MTK_FUNCTION(0, "GPI107"),
++		MTK_FUNCTION(1, "RDN2"),
++		MTK_FUNCTION(2, "CMDAT8")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(108, "RDP2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 109),
++		MTK_FUNCTION(0, "GPI108"),
++		MTK_FUNCTION(1, "RDP2"),
++		MTK_FUNCTION(2, "CMDAT9")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(109, "RDN3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 110),
++		MTK_FUNCTION(0, "GPI109"),
++		MTK_FUNCTION(1, "RDN3"),
++		MTK_FUNCTION(2, "CMDAT4")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(110, "RDP3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 111),
++		MTK_FUNCTION(0, "GPI110"),
++		MTK_FUNCTION(1, "RDP3"),
++		MTK_FUNCTION(2, "CMDAT5")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(111, "RCN_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 112),
++		MTK_FUNCTION(0, "GPI111"),
++		MTK_FUNCTION(1, "RCN_A"),
++		MTK_FUNCTION(2, "CMDAT6")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(112, "RCP_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 113),
++		MTK_FUNCTION(0, "GPI112"),
++		MTK_FUNCTION(1, "RCP_A"),
++		MTK_FUNCTION(2, "CMDAT7")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(113, "RDN1_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 114),
++		MTK_FUNCTION(0, "GPI113"),
++		MTK_FUNCTION(1, "RDN1_A"),
++		MTK_FUNCTION(2, "CMDAT2"),
++		MTK_FUNCTION(3, "CMCSD2")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(114, "RDP1_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 115),
++		MTK_FUNCTION(0, "GPI114"),
++		MTK_FUNCTION(1, "RDP1_A"),
++		MTK_FUNCTION(2, "CMDAT3"),
++		MTK_FUNCTION(3, "CMCSD3")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(115, "RDN0_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 116),
++		MTK_FUNCTION(0, "GPI115"),
++		MTK_FUNCTION(1, "RDN0_A"),
++		MTK_FUNCTION(2, "CMHSYNC")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(116, "RDP0_A"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 117),
++		MTK_FUNCTION(0, "GPI116"),
++		MTK_FUNCTION(1, "RDP0_A"),
++		MTK_FUNCTION(2, "CMVSYNC")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(117, "CMDAT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 118),
++		MTK_FUNCTION(0, "GPIO117"),
++		MTK_FUNCTION(1, "CMDAT0"),
++		MTK_FUNCTION(2, "CMCSD0"),
++		MTK_FUNCTION(3, "ANT_SEL2"),
++		MTK_FUNCTION(7, "DBG_MON_B[28]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(118, "CMDAT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 119),
++		MTK_FUNCTION(0, "GPIO118"),
++		MTK_FUNCTION(1, "CMDAT1"),
++		MTK_FUNCTION(2, "CMCSD1"),
++		MTK_FUNCTION(3, "ANT_SEL3"),
++		MTK_FUNCTION(4, "CMFLASH"),
++		MTK_FUNCTION(7, "DBG_MON_B[29]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(119, "CMMCLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 120),
++		MTK_FUNCTION(0, "GPIO119"),
++		MTK_FUNCTION(1, "CMMCLK"),
++		MTK_FUNCTION(3, "ANT_SEL4"),
++		MTK_FUNCTION(7, "DBG_MON_B[30]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(120, "CMPCLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 121),
++		MTK_FUNCTION(0, "GPIO120"),
++		MTK_FUNCTION(1, "CMPCLK"),
++		MTK_FUNCTION(2, "CMCSK"),
++		MTK_FUNCTION(3, "ANT_SEL5"),
++		MTK_FUNCTION(7, "DBG_MON_B[31]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(121, "MSDC1_CMD"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 122),
++		MTK_FUNCTION(0, "GPIO121"),
++		MTK_FUNCTION(1, "MSDC1_CMD")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(122, "MSDC1_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 123),
++		MTK_FUNCTION(0, "GPIO122"),
++		MTK_FUNCTION(1, "MSDC1_CLK"),
++		MTK_FUNCTION(2, "MD32_JTAG_TCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(123, "MSDC1_DAT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 124),
++		MTK_FUNCTION(0, "GPIO123"),
++		MTK_FUNCTION(1, "MSDC1_DAT0"),
++		MTK_FUNCTION(2, "MD32_JTAG_TMS")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(124, "MSDC1_DAT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 125),
++		MTK_FUNCTION(0, "GPIO124"),
++		MTK_FUNCTION(1, "MSDC1_DAT1"),
++		MTK_FUNCTION(2, "MD32_JTAG_TDI")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(125, "MSDC1_DAT2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 126),
++		MTK_FUNCTION(0, "GPIO125"),
++		MTK_FUNCTION(1, "MSDC1_DAT2"),
++		MTK_FUNCTION(2, "MD32_JTAG_TDO")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(126, "MSDC1_DAT3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 127),
++		MTK_FUNCTION(0, "GPIO126"),
++		MTK_FUNCTION(1, "MSDC1_DAT3"),
++		MTK_FUNCTION(2, "MD32_JTAG_TRST")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(127, "MSDC0_DAT7"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 128),
++		MTK_FUNCTION(0, "GPIO127"),
++		MTK_FUNCTION(1, "MSDC0_DAT7"),
++		MTK_FUNCTION(4, "NLD7")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(128, "MSDC0_DAT6"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 129),
++		MTK_FUNCTION(0, "GPIO128"),
++		MTK_FUNCTION(1, "MSDC0_DAT6"),
++		MTK_FUNCTION(4, "NLD6")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(129, "MSDC0_DAT5"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 130),
++		MTK_FUNCTION(0, "GPIO129"),
++		MTK_FUNCTION(1, "MSDC0_DAT5"),
++		MTK_FUNCTION(4, "NLD4")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(130, "MSDC0_DAT4"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 131),
++		MTK_FUNCTION(0, "GPIO130"),
++		MTK_FUNCTION(1, "MSDC0_DAT4"),
++		MTK_FUNCTION(4, "NLD3")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(131, "MSDC0_RSTB"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 132),
++		MTK_FUNCTION(0, "GPIO131"),
++		MTK_FUNCTION(1, "MSDC0_RSTB"),
++		MTK_FUNCTION(4, "NLD0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(132, "MSDC0_CMD"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 133),
++		MTK_FUNCTION(0, "GPIO132"),
++		MTK_FUNCTION(1, "MSDC0_CMD"),
++		MTK_FUNCTION(4, "NALE")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(133, "MSDC0_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 134),
++		MTK_FUNCTION(0, "GPIO133"),
++		MTK_FUNCTION(1, "MSDC0_CLK"),
++		MTK_FUNCTION(4, "NWEB")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(134, "MSDC0_DAT3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 135),
++		MTK_FUNCTION(0, "GPIO134"),
++		MTK_FUNCTION(1, "MSDC0_DAT3"),
++		MTK_FUNCTION(4, "NLD1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(135, "MSDC0_DAT2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 136),
++		MTK_FUNCTION(0, "GPIO135"),
++		MTK_FUNCTION(1, "MSDC0_DAT2"),
++		MTK_FUNCTION(4, "NLD5")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(136, "MSDC0_DAT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 137),
++		MTK_FUNCTION(0, "GPIO136"),
++		MTK_FUNCTION(1, "MSDC0_DAT1"),
++		MTK_FUNCTION(4, "NLD8")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(137, "MSDC0_DAT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 138),
++		MTK_FUNCTION(0, "GPIO137"),
++		MTK_FUNCTION(1, "MSDC0_DAT0"),
++		MTK_FUNCTION(4, "WATCHDOG"),
++		MTK_FUNCTION(5, "NLD2")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(138, "CEC"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 139),
++		MTK_FUNCTION(0, "GPIO138"),
++		MTK_FUNCTION(1, "CEC")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(139, "HTPLG"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 140),
++		MTK_FUNCTION(0, "GPIO139"),
++		MTK_FUNCTION(1, "HTPLG")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(140, "HDMISCK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 141),
++		MTK_FUNCTION(0, "GPIO140"),
++		MTK_FUNCTION(1, "HDMISCK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(141, "HDMISD"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 142),
++		MTK_FUNCTION(0, "GPIO141"),
++		MTK_FUNCTION(1, "HDMISD")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(142, "EINT21"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 21),
++		MTK_FUNCTION(0, "GPIO142"),
++		MTK_FUNCTION(1, "NRNB"),
++		MTK_FUNCTION(2, "ANT_SEL0"),
++		MTK_FUNCTION(3, "SFCK"),
++		MTK_FUNCTION(7, "DBG_MON_B[32]")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(143, "MSDC3_DAT7"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 143),
++		MTK_FUNCTION(0, "GPIO143"),
++		MTK_FUNCTION(1, "MSDC3_DAT7")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(144, "MSDC3_DAT6"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 144),
++		MTK_FUNCTION(0, "GPIO144"),
++		MTK_FUNCTION(1, "MSDC3_DAT6")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(145, "MSDC3_DAT5"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 145),
++		MTK_FUNCTION(0, "GPIO145"),
++		MTK_FUNCTION(1, "MSDC3_DAT5")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(146, "MSDC3_DAT4"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 146),
++		MTK_FUNCTION(0, "GPIO146"),
++		MTK_FUNCTION(1, "MSDC3_DAT4")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(147, "MSDC3_RSTB"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 147),
++		MTK_FUNCTION(0, "GPIO147"),
++		MTK_FUNCTION(1, "MSDC3_RSTB")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(148, "MSDC3_CMD"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 148),
++		MTK_FUNCTION(0, "GPIO148"),
++		MTK_FUNCTION(1, "MSDC3_CMD")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(149, "MSDC3_CLK"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 149),
++		MTK_FUNCTION(0, "GPIO149"),
++		MTK_FUNCTION(1, "MSDC3_CLK")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(150, "MSDC3_DAT3"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 150),
++		MTK_FUNCTION(0, "GPIO150"),
++		MTK_FUNCTION(1, "MSDC3_DAT3")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(151, "MSDC3_DAT2"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 151),
++		MTK_FUNCTION(0, "GPIO151"),
++		MTK_FUNCTION(1, "MSDC3_DAT2")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(152, "MSDC3_DAT1"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 152),
++		MTK_FUNCTION(0, "GPIO152"),
++		MTK_FUNCTION(1, "MSDC3_DAT1")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(153, "MSDC3_DAT0"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 153),
++		MTK_FUNCTION(0, "GPIO153"),
++		MTK_FUNCTION(1, "MSDC3_DAT0")
++	),
++	MTK_PIN(
++		PINCTRL_PIN(154, "MSDC3_DSL"),
++		NULL, "mt8163",
++		MTK_EINT_FUNCTION(0, 154),
++		MTK_FUNCTION(0, "GPIO154"),
++		MTK_FUNCTION(1, "MSDC3_DSL")
++	),
++};
++
++#endif /* __PINCTRL_MTK_MT8163_H */
+--- a/drivers/pmdomain/mediatek/mt8163-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mt8163-pm-domains.h
+@@ -0,0 +1,108 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#ifndef __SOC_MEDIATEK_MT8163_PM_DOMAINS_H
++#define __SOC_MEDIATEK_MT8163_PM_DOMAINS_H
++
++#include "mtk-pm-domains.h"
++#include <dt-bindings/power/mediatek,mt8163-power-controller.h>
++
++/*
++ * MT8163 power domain support
++ */
++
++static const struct scpsys_domain_data scpsys_domain_data_mt8163[] = {
++	[MT8163_POWER_DOMAIN_VDEC] = {
++		.name = "vdec",
++		.sta_mask = PWR_STATUS_VDEC,
++		.ctl_offs = SPM_VDE_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(12, 12),
++	},
++	[MT8163_POWER_DOMAIN_VENC] = {
++		.name = "venc",
++		.sta_mask = PWR_STATUS_VENC,
++		.ctl_offs = SPM_VEN_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(15, 12),
++	},
++	[MT8163_POWER_DOMAIN_ISP] = {
++		.name = "isp",
++		.sta_mask = PWR_STATUS_ISP,
++		.ctl_offs = SPM_ISP_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(13, 12),
++	},
++	[MT8163_POWER_DOMAIN_MM] = {
++		.name = "mm",
++		.sta_mask = PWR_STATUS_DISP,
++		.ctl_offs = SPM_DIS_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(12, 12),
++		.bp_cfg = {
++			BUS_PROT_INFRA_UPDATE_TOPAXI(MT8163_TOP_AXI_PROT_EN_MM_M0),
++		},
++	},
++	[MT8163_POWER_DOMAIN_AUDIO] = {
++		.name = "audio",
++		.sta_mask = PWR_STATUS_AUDIO,
++		.ctl_offs = SPM_AUDIO_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(15, 12),
++	},
++	[MT8163_POWER_DOMAIN_MFG_ASYNC] = {
++		.name = "mfg_async",
++		.sta_mask = PWR_STATUS_MFG_ASYNC,
++		.ctl_offs = SPM_MFG_ASYNC_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = 0,
++		.bp_cfg = {
++			BUS_PROT_INFRA_UPDATE_TOPAXI(MT8163_TOP_AXI_PROT_EN_MFG_M0 |
++						     MT8163_TOP_AXI_PROT_EN_MFG_SNOOP_OUT),
++		},
++	},
++	[MT8163_POWER_DOMAIN_MFG] = {
++		.name = "mfg",
++		.sta_mask = PWR_STATUS_MFG,
++		.ctl_offs = SPM_MFG_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(13, 8),
++		.sram_pdn_ack_bits = GENMASK(16, 16),
++	},
++	[MT8163_POWER_DOMAIN_CONN] = {
++		.name = "conn",
++		.sta_mask = PWR_STATUS_CONN,
++		.ctl_offs = SPM_CONN_PWR_CON,
++		.pwr_sta_offs = SPM_PWR_STATUS,
++		.pwr_sta2nd_offs = SPM_PWR_STATUS_2ND,
++		.sram_pdn_bits = GENMASK(8, 8),
++		.sram_pdn_ack_bits = 0,
++		.bp_cfg = {
++			BUS_PROT_INFRA_UPDATE_TOPAXI(MT8163_TOP_AXI_PROT_EN_CCI_M2 |
++						     MT8163_TOP_AXI_PROT_EN_CONN2EMI |
++						     MT8163_TOP_AXI_PROT_EN_CONN2PERI),
++		},
++	},
++};
++
++static const struct scpsys_soc_data mt8163_scpsys_data = {
++	.domains_data = scpsys_domain_data_mt8163,
++	.num_domains = ARRAY_SIZE(scpsys_domain_data_mt8163),
++};
++
++#endif /* __SOC_MEDIATEK_MT8163_PM_DOMAINS_H */
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -22,6 +22,7 @@
+ #include "mt6795-pm-domains.h"
+ #include "mt6858-pm-domains.h"
+ #include "mt6893-pm-domains.h"
++#include "mt8163-pm-domains.h"
+ #include "mt8167-pm-domains.h"
+ #include "mt8173-pm-domains.h"
+ #include "mt8183-pm-domains.h"
+@@ -1298,6 +1299,10 @@
+ 		.data = &mt6893_scpsys_data,
+ 	},
+ 	{
++		.compatible = "mediatek,mt8163-power-controller",
++		.data = &mt8163_scpsys_data,
++	},
++	{
+ 		.compatible = "mediatek,mt8167-power-controller",
+ 		.data = &mt8167_scpsys_data,
+ 	},
+--- a/drivers/power/supply/generic-adc-battery.c
++++ b/drivers/power/supply/generic-adc-battery.c
+@@ -48,6 +48,7 @@
+ 	struct delayed_work bat_work;
+ 	int status;
+ 	struct gpio_desc *charge_finished;
++	struct power_supply_battery_info *bat_info; /* Douglas: capacity */
+ };
+ 
+ static struct gab *to_generic_bat(struct power_supply *psy)
+@@ -64,6 +65,7 @@
+ 
+ static const enum power_supply_property gab_props[] = {
+ 	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_CAPACITY,
+ };
+ 
+ /*
+@@ -112,6 +114,21 @@
+ 	case POWER_SUPPLY_PROP_STATUS:
+ 		val->intval = adc_bat->status;
+ 		return 0;
++	case POWER_SUPPLY_PROP_CAPACITY: {
++		int uv, ret;
++
++		if (!adc_bat->bat_info || !adc_bat->channel[GAB_VOLTAGE])
++			return -ENODATA;
++		ret = gab_read_channel(adc_bat, GAB_VOLTAGE, &uv);
++		if (ret)
++			return ret;
++		val->intval = power_supply_batinfo_ocv2cap(adc_bat->bat_info, uv, 25);
++		if (val->intval < 0)
++			return val->intval;
++		if (adc_bat->status == POWER_SUPPLY_STATUS_FULL)
++			val->intval = 100;
++		return 0;
++	}
+ 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+ 		return gab_read_channel(adc_bat, GAB_VOLTAGE, &val->intval);
+ 	case POWER_SUPPLY_PROP_CURRENT_NOW:
+@@ -238,6 +255,9 @@
+ 	if (IS_ERR(adc_bat->psy))
+ 		return dev_err_probe(&pdev->dev, PTR_ERR(adc_bat->psy), "Failed to register power-supply device\n");
+ 
++	if (power_supply_get_battery_info(adc_bat->psy, &adc_bat->bat_info))
++		adc_bat->bat_info = NULL;
++
+ 	ret = devm_delayed_work_autocancel(&pdev->dev, &adc_bat->bat_work, gab_work);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register delayed work\n");
+--- a/drivers/regulator/fan53555.c
++++ b/drivers/regulator/fan53555.c
+@@ -118,10 +118,15 @@
+ };
+ 
+ enum {
++	SILERGY_SYM82X = 1,
+ 	SILERGY_SYR82X = 8,
+ 	SILERGY_SYR83X = 9,
+ };
+ 
++enum {
++	SILERGY_SYM827_CHIP_REV_12 = 12,
++};
++
+ struct fan53555_device_info {
+ 	enum fan53555_vendor vendor;
+ 	struct device *dev;
+@@ -133,6 +138,7 @@
+ 	/* Voltage setting register */
+ 	unsigned int vol_reg;
+ 	unsigned int sleep_reg;
++	bool mirror_vsel;	/* douglas: write both VSEL registers */
+ 	unsigned int en_reg;
+ 	unsigned int sleep_en_reg;
+ 	/* Voltage range and step(linear) */
+@@ -241,8 +247,20 @@
+ 	 2300,
+ };
+ 
++static int fan53555_set_voltage_sel(struct regulator_dev *rdev, unsigned int sel)
++{
++	struct fan53555_device_info *di = rdev_get_drvdata(rdev);
++	unsigned int mask = rdev->desc->vsel_mask;
++	int ret;
++
++	ret = regulator_set_voltage_sel_regmap(rdev, sel);
++	if (ret || !di->mirror_vsel)
++		return ret;
++	return regmap_update_bits(rdev->regmap, di->sleep_reg, mask, sel << (ffs(mask) - 1));
++}
++
+ static const struct regulator_ops fan53555_regulator_ops = {
+-	.set_voltage_sel = regulator_set_voltage_sel_regmap,
++	.set_voltage_sel = fan53555_set_voltage_sel,
+ 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+ 	.set_voltage_time_sel = regulator_set_voltage_time_sel,
+ 	.map_voltage = regulator_map_voltage_linear,
+@@ -412,6 +430,19 @@
+ {
+ 	/* Init voltage range and step */
+ 	switch (di->chip_id) {
++	case SILERGY_SYM82X:
++		switch (di->chip_rev) {
++			case SILERGY_SYM827_CHIP_REV_12:
++				di->vsel_min = 600000;
++				di->vsel_step = 12500;
++				break;
++			default:
++				dev_err(di->dev,
++					"Chip ID %d with rev %d not supported!\n",
++					di->chip_id, di->chip_rev);
++				return -EINVAL;
++		}
++		break;
+ 	case SILERGY_SYR82X:
+ 	case SILERGY_SYR83X:
+ 		di->vsel_min = 712500;
+@@ -632,6 +663,7 @@
+ 	rdesc->min_uV = di->vsel_min;
+ 	rdesc->uV_step = di->vsel_step;
+ 	rdesc->vsel_reg = di->vol_reg;
++	di->mirror_vsel = of_property_read_bool(di->dev->of_node, "douglas,mirror-vsel");
+ 	rdesc->vsel_mask = BIT(fls(di->vsel_count - 1)) - 1;
+ 	rdesc->ramp_reg = di->slew_reg;
+ 	rdesc->ramp_mask = di->slew_mask;
+@@ -685,6 +717,9 @@
+ 		.compatible = "rockchip,rk8602",
+ 		.data = (void *)RK8602_VENDOR_ROCKCHIP
+ 	}, {
++		.compatible = "silergy,sym827",
++		.data = (void *)FAN53555_VENDOR_SILERGY,
++	}, {
+ 		.compatible = "silergy,syr827",
+ 		.data = (void *)FAN53555_VENDOR_SILERGY,
+ 	}, {
+@@ -795,6 +830,9 @@
+ 		.name = "rk8602",
+ 		.driver_data = RK8602_VENDOR_ROCKCHIP
+ 	}, {
++		.name = "sym827",
++		.driver_data = FAN53555_VENDOR_SILERGY
++	}, {
+ 		.name = "syr827",
+ 		.driver_data = FAN53555_VENDOR_SILERGY
+ 	}, {
+--- a/drivers/soc/mediatek/mt8163-mmsys.h
++++ b/drivers/soc/mediatek/mt8163-mmsys.h
+@@ -0,0 +1,106 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __SOC_MEDIATEK_MT8163_MMSYS_H
++#define __SOC_MEDIATEK_MT8163_MMSYS_H
++
++#include <linux/soc/mediatek/mtk-mmsys.h>
++#include <dt-bindings/reset/mediatek,mt8163-mmsys.h>
++
++#define MT8163_DISP_REG_CONFIG_DISP_OVL0_MOUT_EN	0x030
++#define MT8163_DISP_REG_CONFIG_DISP_DITHER_MOUT_EN	0x038
++#define MT8163_DISP_REG_CONFIG_DISP_UFOE_MOUT_EN	0x03C
++#define MT8163_DISP_REG_CONFIG_DISP_COLOR0_SEL_IN	0x058
++#define MT8163_DISP_REG_CONFIG_DISP_UFOE_SEL_IN		0x060
++#define MT8163_DISP_REG_CONFIG_DISP_DSI0_SEL_IN		0x064
++#define MT8163_DISP_REG_CONFIG_DISP_RDMA0_SOUT_SEL_IN	0x06C
++
++#define MT8163_OVL0_MOUT_EN_MASK			GENMASK(1, 0)
++
++#define MT8163_DITHER_MOUT_EN_RDMA0			0x1
++#define MT8163_DITHER_MOUT_EN_MASK			GENMASK(2, 0)
++
++#define MT8163_UFOE_MOUT_EN_MASK			GENMASK(3, 0)
++
++#define MT8163_RDMA0_SOUT_MASK				GENMASK(2, 0)
++
++#define MT8163_UFOE_SEL_IN_MASK				BIT(0)
++
++#define MT8163_DSI0_SEL_IN_MASK				GENMASK(1, 0)
++
++static const u8 mmsys_mt8163_rst_tb[] = {
++	/* MMSYS_SW0_RST_B */
++	[MT8163_MMSYS_RST_SMI_COMMON]		= MMSYS_RST_NR(0, 0),
++	[MT8163_MMSYS_RST_SMI_LARB0]		= MMSYS_RST_NR(0, 1),
++	[MT8163_MMSYS_RST_CAM_MDP]		= MMSYS_RST_NR(0, 2),
++	[MT8163_MMSYS_RST_MDP_RDMA]		= MMSYS_RST_NR(0, 3),
++	[MT8163_MMSYS_RST_MDP_RSZ0]		= MMSYS_RST_NR(0, 4),
++	[MT8163_MMSYS_RST_MDP_RSZ1]		= MMSYS_RST_NR(0, 5),
++	[MT8163_MMSYS_RST_MDP_TDSHP]		= MMSYS_RST_NR(0, 6),
++	[MT8163_MMSYS_RST_MDP_WDMA]		= MMSYS_RST_NR(0, 7),
++	[MT8163_MMSYS_RST_MDP_WROT]		= MMSYS_RST_NR(0, 8),
++	[MT8163_MMSYS_RST_FAKE_ENG]		= MMSYS_RST_NR(0, 9),
++	[MT8163_MMSYS_RST_MUTEX]		= MMSYS_RST_NR(0, 10),
++	[MT8163_MMSYS_RST_DISP_OVL0]		= MMSYS_RST_NR(0, 12),
++	[MT8163_MMSYS_RST_DISP_OVL1]		= MMSYS_RST_NR(0, 13),
++	[MT8163_MMSYS_RST_DISP_RDMA0]		= MMSYS_RST_NR(0, 14),
++	[MT8163_MMSYS_RST_DISP_RDMA1]		= MMSYS_RST_NR(0, 15),
++	[MT8163_MMSYS_RST_DISP_WDMA0]		= MMSYS_RST_NR(0, 16),
++	[MT8163_MMSYS_RST_DISP_COLOR]		= MMSYS_RST_NR(0, 17),
++	[MT8163_MMSYS_RST_DISP_CCORR]		= MMSYS_RST_NR(0, 18),
++	[MT8163_MMSYS_RST_DISP_AAL]		= MMSYS_RST_NR(0, 19),
++	[MT8163_MMSYS_RST_DISP_GAMMA]		= MMSYS_RST_NR(0, 20),
++	[MT8163_MMSYS_RST_DISP_DITHER]		= MMSYS_RST_NR(0, 21),
++	[MT8163_MMSYS_RST_DISP_UFOE]		= MMSYS_RST_NR(0, 22),
++	[MT8163_MMSYS_RST_DISP_PWM]		= MMSYS_RST_NR(0, 23),
++	[MT8163_MMSYS_RST_DSI]			= MMSYS_RST_NR(0, 24),
++	[MT8163_MMSYS_RST_DPI0]			= MMSYS_RST_NR(0, 25),
++	[MT8163_MMSYS_RST_SMI_COMMON_GLB]	= MMSYS_RST_NR(0, 26),
++	[MT8163_MMSYS_RST_SMI_LARB0_GLB]	= MMSYS_RST_NR(0, 27),
++	[MT8163_MMSYS_RST_AXI_ASF]		= MMSYS_RST_NR(0, 28),
++	[MT8163_MMSYS_RST_DISP_WDMA1]		= MMSYS_RST_NR(0, 29),
++	[MT8163_MMSYS_RST_UFOD_RDMA0]		= MMSYS_RST_NR(0, 30),
++	[MT8163_MMSYS_RST_UFOD_RDMA1]		= MMSYS_RST_NR(0, 31),
++
++	/* MMSYS_SW1_RST_B */
++	[MT8163_MMSYS_RST_DPI1]			= MMSYS_RST_NR(1, 0),
++	[MT8163_MMSYS_RST_LVDS]			= MMSYS_RST_NR(1, 1),
++
++	/* MMSYS_LCM_RST_B */
++	[MT8163_MMSYS_RST_LCM]			= MMSYS_RST_NR(2, 0),
++};
++
++/*
++ * Minimal routing table with one route implemented:
++ * OVL0 -> COLOR0 -> CCORR -> AAL -> GAMMA -> DITHER -> RDMA0 -> UFOE -> DSI0
++ *
++ * MT8163 has other routes for driving external displays that are not
++ * implemented here.
++ */
++static const struct mtk_mmsys_routes mt8163_mmsys_routing_table[] = {
++	MMSYS_ROUTE(OVL, 0, COLOR, 0,
++		    MT8163_DISP_REG_CONFIG_DISP_OVL0_MOUT_EN, MT8163_OVL0_MOUT_EN_MASK,
++		    OVL0_MOUT_EN_COLOR0),
++	MMSYS_ROUTE(OVL, 0, COLOR, 0,
++		    MT8163_DISP_REG_CONFIG_DISP_COLOR0_SEL_IN, COLOR0_SEL_IN_OVL0,
++		    COLOR0_SEL_IN_OVL0),
++
++	MMSYS_ROUTE(DITHER, 0, RDMA, 0,
++		    MT8163_DISP_REG_CONFIG_DISP_DITHER_MOUT_EN, MT8163_DITHER_MOUT_EN_MASK,
++		    MT8163_DITHER_MOUT_EN_RDMA0),
++
++	MMSYS_ROUTE(RDMA, 0, UFOE, ,
++		    MT8163_DISP_REG_CONFIG_DISP_RDMA0_SOUT_SEL_IN, MT8163_RDMA0_SOUT_MASK,
++		    0 /* Single output to DISP_UFOE */),
++	MMSYS_ROUTE(RDMA, 0, UFOE, ,
++		    MT8163_DISP_REG_CONFIG_DISP_UFOE_SEL_IN, MT8163_UFOE_SEL_IN_MASK,
++		    0 /* Input from DISP_RDMA0 */),
++
++	MMSYS_ROUTE(UFOE, , DSI, 0,
++		    MT8163_DISP_REG_CONFIG_DISP_UFOE_MOUT_EN, MT8163_UFOE_MOUT_EN_MASK,
++		    UFOE_MOUT_EN_DSI0),
++	MMSYS_ROUTE(UFOE, , DSI, 0,
++		    MT8163_DISP_REG_CONFIG_DISP_DSI0_SEL_IN, MT8163_DSI0_SEL_IN_MASK,
++		    0 /* Input from DISP_UFOE */),
++};
++
++#endif /* __SOC_MEDIATEK_MT8163_MMSYS_H */
+--- a/drivers/soc/mediatek/mtk-mmsys.c
++++ b/drivers/soc/mediatek/mtk-mmsys.c
+@@ -14,6 +14,7 @@
+ #include <linux/soc/mediatek/mtk-mmsys.h>
+ 
+ #include "mtk-mmsys.h"
++#include "mt8163-mmsys.h"
+ #include "mt8167-mmsys.h"
+ #include "mt8173-mmsys.h"
+ #include "mt8183-mmsys.h"
+@@ -53,10 +54,21 @@
+ 	.clk_driver = "clk-mt6797-mm",
+ };
+ 
++static const struct mtk_mmsys_driver_data mt8163_mmsys_driver_data = {
++	.clk_driver = "clk-mt8163-mm",
++	.routes = mt8163_mmsys_routing_table,
++	.num_routes = ARRAY_SIZE(mt8163_mmsys_routing_table),
++	.sw0_rst_offset = MT8183_MMSYS_SW0_RST_B,
++	.num_resets = 64,
++};
++
+ static const struct mtk_mmsys_driver_data mt8167_mmsys_driver_data = {
+ 	.clk_driver = "clk-mt8167-mm",
+ 	.routes = mt8167_mmsys_routing_table,
+ 	.num_routes = ARRAY_SIZE(mt8167_mmsys_routing_table),
++	.sw0_rst_offset = MT8183_MMSYS_SW0_RST_B,
++	.rst_tb = mmsys_mt8163_rst_tb,
++	.num_resets = ARRAY_SIZE(mmsys_mt8163_rst_tb),
+ };
+ 
+ static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
+@@ -463,6 +475,7 @@
+ 	{ .compatible = "mediatek,mt6779-mmsys", .data = &mt6779_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6795-mmsys", .data = &mt6795_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6797-mmsys", .data = &mt6797_mmsys_driver_data },
++	{ .compatible = "mediatek,mt8163-mmsys", .data = &mt8163_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt8167-mmsys", .data = &mt8167_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt8173-mmsys", .data = &mt8173_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt8183-mmsys", .data = &mt8183_mmsys_driver_data },
+--- a/drivers/soc/mediatek/mtk-mutex.c
++++ b/drivers/soc/mediatek/mtk-mutex.c
+@@ -66,6 +66,20 @@
+ #define MT8186_MUTEX_EOF_DSI0			(MT8186_MUTEX_SOF_DSI0 << 6)
+ #define MT8186_MUTEX_EOF_DPI0			(MT8186_MUTEX_SOF_DPI0 << 6)
+ 
++#define MT8163_MUTEX_MOD_DISP_OVL0		6
++#define MT8163_MUTEX_MOD_DISP_OVL1		7
++#define MT8163_MUTEX_MOD_DISP_RDMA0		8
++#define MT8163_MUTEX_MOD_DISP_RDMA1		9
++#define MT8163_MUTEX_MOD_DISP_WDMA0		10
++#define MT8163_MUTEX_MOD_DISP_COLOR0		11
++#define MT8163_MUTEX_MOD_DISP_CCORR		12
++#define MT8163_MUTEX_MOD_DISP_AAL		13
++#define MT8163_MUTEX_MOD_DISP_GAMMA		14
++#define MT8163_MUTEX_MOD_DISP_DITHER		15
++#define MT8163_MUTEX_MOD_DISP_UFOE		16
++#define MT8163_MUTEX_MOD_DISP_PWM0		17
++#define MT8163_MUTEX_MOD_DISP_WDMA1		18
++
+ #define MT8167_MUTEX_MOD_DISP_PWM		1
+ #define MT8167_MUTEX_MOD_DISP_OVL0		6
+ #define MT8167_MUTEX_MOD_DISP_OVL1		7
+@@ -397,6 +411,22 @@
+ 	[DDP_COMPONENT_WDMA1] = MT2712_MUTEX_MOD_DISP_WDMA1,
+ };
+ 
++static const u8 mt8163_mutex_mod[DDP_COMPONENT_ID_MAX] = {
++	[DDP_COMPONENT_AAL0] = MT8163_MUTEX_MOD_DISP_AAL,
++	[DDP_COMPONENT_COLOR0] = MT8163_MUTEX_MOD_DISP_COLOR0,
++	[DDP_COMPONENT_DITHER0] = MT8163_MUTEX_MOD_DISP_DITHER,
++	[DDP_COMPONENT_CCORR] = MT8163_MUTEX_MOD_DISP_CCORR,
++	[DDP_COMPONENT_GAMMA] = MT8163_MUTEX_MOD_DISP_GAMMA,
++	[DDP_COMPONENT_OVL0] = MT8163_MUTEX_MOD_DISP_OVL0,
++	[DDP_COMPONENT_OVL1] = MT8163_MUTEX_MOD_DISP_OVL1,
++	[DDP_COMPONENT_PWM0] = MT8163_MUTEX_MOD_DISP_PWM0,
++	[DDP_COMPONENT_RDMA0] = MT8163_MUTEX_MOD_DISP_RDMA0,
++	[DDP_COMPONENT_RDMA1] = MT8163_MUTEX_MOD_DISP_RDMA1,
++	[DDP_COMPONENT_UFOE] = MT8163_MUTEX_MOD_DISP_UFOE,
++	[DDP_COMPONENT_WDMA0] = MT8163_MUTEX_MOD_DISP_WDMA0,
++	[DDP_COMPONENT_WDMA1] = MT8163_MUTEX_MOD_DISP_WDMA1,
++};
++
+ static const u8 mt8167_mutex_mod[DDP_COMPONENT_ID_MAX] = {
+ 	[DDP_COMPONENT_AAL0] = MT8167_MUTEX_MOD_DISP_AAL,
+ 	[DDP_COMPONENT_CCORR] = MT8167_MUTEX_MOD_DISP_CCORR,
+@@ -754,6 +784,15 @@
+ 	.mutex_sof_reg = MT2701_MUTEX0_SOF0,
+ };
+ 
++static const struct mtk_mutex_data mt8163_mutex_driver_data = {
++	.mutex_mod = mt8163_mutex_mod,
++	.mutex_sof = mt8167_mutex_sof,
++	.mutex_mod_reg = MT2701_MUTEX0_MOD0,
++	.mutex_mod1_reg = MT2701_MUTEX0_MOD1,
++	.mutex_sof_reg = MT2701_MUTEX0_SOF0,
++	.no_clk = true,
++};
++
+ static const struct mtk_mutex_data mt8167_mutex_driver_data = {
+ 	.mutex_mod = mt8167_mutex_mod,
+ 	.mutex_sof = mt8167_mutex_sof,
+@@ -1134,6 +1173,7 @@
+ 	{ .compatible = "mediatek,mt2701-disp-mutex", .data = &mt2701_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt2712-disp-mutex", .data = &mt2712_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt6795-disp-mutex", .data = &mt6795_mutex_driver_data },
++	{ .compatible = "mediatek,mt8163-disp-mutex", .data = &mt8163_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt8167-disp-mutex", .data = &mt8167_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt8173-disp-mutex", .data = &mt8173_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt8183-disp-mutex", .data = &mt8183_mutex_driver_data },
+--- a/drivers/thermal/mediatek/auxadc_thermal.c
++++ b/drivers/thermal/mediatek/auxadc_thermal.c
+@@ -296,6 +296,29 @@
+ #define MT8365_TS2 1
+ #define MT8365_TS3 2
+ 
++/* MT8163 thermal sensors */
++#define MT8163_TS1	0
++#define MT8163_TS2	1
++#define MT8163_TS3	2
++
++/* AUXADC channel 11 is used for the temperature sensors */
++#define MT8163_TEMP_AUXADC_CHANNEL	11
++
++/* The total number of temperature sensors in the MT8163 */
++#define MT8163_NUM_SENSORS		3
++
++/* The number of banks in the MT8163 */
++#define MT8163_NUM_ZONES		3
++
++/* The number of sensing points per bank */
++#define MT8163_NUM_SENSORS_PER_ZONE	3
++
++/* The number of controller in the MT8163 */
++#define MT8163_NUM_CONTROLLER		1
++
++/* The calibration coefficient of sensor  */
++#define MT8163_CALIBRATION	165
++
+ struct mtk_thermal;
+ 
+ struct thermal_bank_cfg {
+@@ -468,6 +491,28 @@
+ 
+ static const int mt8365_vts_index[MT8365_NUM_SENSORS] = { VTS1, VTS2, VTS3 };
+ 
++/* MT8163 thermal sensor data */
++static const int mt8163_bank_data[MT8163_NUM_ZONES][3] = {
++	{ MT8163_TS1, MT8163_TS2 },
++	{ MT8163_TS2 },
++	{ MT8163_TS1, MT8163_TS2, MT8163_TS3 },
++};
++
++static const int mt8163_msr[MT8163_NUM_SENSORS_PER_ZONE] = {
++	TEMP_MSR0, TEMP_MSR1, TEMP_MSR2
++};
++
++static const int mt8163_adcpnp[MT8163_NUM_SENSORS_PER_ZONE] = {
++	TEMP_ADCPNP0, TEMP_ADCPNP1, TEMP_ADCPNP2
++};
++
++static const int mt8163_mux_values[MT8163_NUM_SENSORS] = { 0, 1, 2 };
++static const int mt8163_tc_offset[MT8163_NUM_CONTROLLER] = { 0x0, };
++
++static const int mt8163_vts_index[MT8163_NUM_SENSORS] = {
++	VTS1, VTS2, VTS3
++};
++
+ /*
+  * The MT8173 thermal controller has four banks. Each bank can read up to
+  * four temperature sensors simultaneously. The MT8173 has a total of 5
+@@ -695,6 +740,39 @@
+ 	.apmixed_buffer_ctl_set = BIT(0),
+ };
+ 
++/*
++ * The MT8163 thermal controller has three banks. Each bank can read up to
++ * four temperature sensors simultaneously. The MT8163 has a total of 5
++ * temperature sensors. We use each bank to measure a certain area of the
++ * SoC.
++ */
++static const struct mtk_thermal_data mt8163_thermal_data = {
++	.auxadc_channel = MT8163_TEMP_AUXADC_CHANNEL,
++	.num_banks = MT8163_NUM_ZONES,
++	.num_sensors = MT8163_NUM_SENSORS,
++	.vts_index = mt8163_vts_index,
++	.cali_val = MT8163_CALIBRATION,
++	.num_controller = MT8163_NUM_CONTROLLER,
++	.controller_offset = mt8163_tc_offset,
++	.need_switch_bank = true,
++	.bank_data = {
++		{
++			.num_sensors = 2,
++			.sensors = mt8163_bank_data[0],
++		}, {
++			.num_sensors = 1,
++			.sensors = mt8163_bank_data[1],
++		}, {
++			.num_sensors = 3,
++			.sensors = mt8163_bank_data[2],
++		},
++	},
++	.msr = mt8163_msr,
++	.adcpnp = mt8163_adcpnp,
++	.sensor_mux_values = mt8163_mux_values,
++	.version = MTK_THERMAL_V1,
++};
++
+ static bool mtk_thermal_temp_is_valid(int temp)
+ {
+ 	return (temp >= MT8173_TEMP_MIN) && (temp <= MT8173_TEMP_MAX);
+@@ -847,21 +925,13 @@
+ 
+ static int mtk_read_temp(struct thermal_zone_device *tz, int *temperature)
+ {
+-	struct mtk_thermal *mt = thermal_zone_device_priv(tz);
+-	int i;
+-	int tempmax = INT_MIN;
+-
+-	for (i = 0; i < mt->conf->num_banks; i++) {
+-		struct mtk_thermal_bank *bank = &mt->banks[i];
+-
+-		mtk_thermal_get_bank(bank);
++	struct mtk_thermal_bank *bank = thermal_zone_device_priv(tz);
+ 
+-		tempmax = max(tempmax, mtk_thermal_bank_temperature(bank));
++	mtk_thermal_get_bank(bank);
+ 
+-		mtk_thermal_put_bank(bank);
+-	}
++	*temperature = mtk_thermal_bank_temperature(bank);
+ 
+-	*temperature = tempmax;
++	mtk_thermal_put_bank(bank);
+ 
+ 	return 0;
+ }
+@@ -1134,6 +1204,10 @@
+ 
+ static const struct of_device_id mtk_thermal_of_match[] = {
+ 	{
++		.compatible = "mediatek,mt8163-thermal",
++		.data = (void *)&mt8163_thermal_data,
++	},
++	{
+ 		.compatible = "mediatek,mt8173-thermal",
+ 		.data = (void *)&mt8173_thermal_data,
+ 	},
+@@ -1285,14 +1359,18 @@
+ 			mtk_thermal_init_bank(mt, i, apmixed_phys_base,
+ 					      auxadc_phys_base, ctrl_id);
+ 
+-	tzdev = devm_thermal_of_zone_register(&pdev->dev, 0, mt,
+-					      &mtk_thermal_ops);
+-	if (IS_ERR(tzdev))
+-		return PTR_ERR(tzdev);
++	for (i = 0; i < mt->conf->num_banks; i++) {
++		struct mtk_thermal_bank *bank = &mt->banks[i];
+ 
+-	ret = devm_thermal_add_hwmon_sysfs(&pdev->dev, tzdev);
+-	if (ret)
+-		dev_warn(&pdev->dev, "error in thermal_add_hwmon_sysfs");
++		tzdev = devm_thermal_of_zone_register(&pdev->dev, i, bank,
++						      &mtk_thermal_ops);
++		if (IS_ERR(tzdev))
++			return PTR_ERR(tzdev);
++
++		ret = devm_thermal_add_hwmon_sysfs(&pdev->dev, tzdev);
++		if (ret)
++			dev_warn(&pdev->dev, "error in thermal_add_hwmon_sysfs");
++	}
+ 
+ 	return 0;
+ }
+--- a/drivers/watchdog/mtk_wdt.c
++++ b/drivers/watchdog/mtk_wdt.c
+@@ -13,6 +13,7 @@
+ #include <dt-bindings/reset/mediatek,mt6735-wdt.h>
+ #include <dt-bindings/reset/mediatek,mt6795-resets.h>
+ #include <dt-bindings/reset/mt7986-resets.h>
++#include <dt-bindings/reset/mediatek,mt8163-wdt.h>
+ #include <dt-bindings/reset/mt8183-resets.h>
+ #include <dt-bindings/reset/mt8186-resets.h>
+ #include <dt-bindings/reset/mt8188-resets.h>
+@@ -105,6 +106,10 @@
+ 	.has_swsysrst_en = true,
+ };
+ 
++static const struct mtk_wdt_data mt8163_data = {
++	.toprgu_sw_rst_num = MT8163_TOPRGU_RST_NUM
++};
++
+ static const struct mtk_wdt_data mt8183_data = {
+ 	.toprgu_sw_rst_num = MT8183_TOPRGU_SW_RST_NUM,
+ };
+@@ -498,6 +503,7 @@
+ 	{ .compatible = "mediatek,mt6795-wdt", .data = &mt6795_data },
+ 	{ .compatible = "mediatek,mt7986-wdt", .data = &mt7986_data },
+ 	{ .compatible = "mediatek,mt7988-wdt", .data = &mt7988_data },
++	{ .compatible = "mediatek,mt8163-wdt", .data = &mt8163_data },
+ 	{ .compatible = "mediatek,mt8183-wdt", .data = &mt8183_data },
+ 	{ .compatible = "mediatek,mt8186-wdt", .data = &mt8186_data },
+ 	{ .compatible = "mediatek,mt8188-wdt", .data = &mt8188_data },
+--- a/include/linux/soc/mediatek/infracfg.h
++++ b/include/linux/soc/mediatek/infracfg.h
+@@ -396,6 +396,23 @@
+ #define MT8183_SMI_COMMON_SMI_CLAMP_VPU_TOP		(BIT(5) | BIT(6))
+ #define MT8183_SMI_COMMON_SMI_CLAMP_VDEC		BIT(7)
+ 
++#define MT8163_TOP_AXI_PROT_EN_CCI_M1		BIT(0)
++#define MT8163_TOP_AXI_PROT_EN_MM_M0		BIT(1)
++#define MT8163_TOP_AXI_PROT_EN_MMAPB_S		BIT(6)
++#define MT8163_TOP_AXI_PROT_EN_L2C_M2		BIT(9)
++#define MT8163_TOP_AXI_PROT_EN_L2SS_SMI		BIT(11)
++#define MT8163_TOP_AXI_PROT_EN_L2SS_AFF		BIT(12)
++#define MT8163_TOP_AXI_PROT_EN_CCI_M2		BIT(13)
++#define MT8163_TOP_AXI_PROT_EN_CONN2EMI		BIT(14)
++#define MT8163_TOP_AXI_PROT_EN_CONN2PERI	BIT(15)
++#define MT8163_TOP_AXI_PROT_EN_DEBUGSYS		BIT(17)
++#define MT8163_TOP_AXI_PROT_EN_CQ_DMA		BIT(18)
++#define MT8163_TOP_AXI_PROT_EN_GCPU		BIT(19)
++#define MT8163_TOP_AXI_PROT_EN_IOMMU		BIT(20)
++#define MT8163_TOP_AXI_PROT_EN_MFG_M0		BIT(21)
++#define MT8163_TOP_AXI_PROT_EN_MFG_M1		BIT(22)
++#define MT8163_TOP_AXI_PROT_EN_MFG_SNOOP_OUT	BIT(23)
++
+ #define MT8173_TOP_AXI_PROT_EN_MCI_M2		BIT(0)
+ #define MT8173_TOP_AXI_PROT_EN_MM_M0		BIT(1)
+ #define MT8173_TOP_AXI_PROT_EN_MM_M1		BIT(2)
+--- a/include/soc/mediatek/pmic_wrap.h
++++ b/include/soc/mediatek/pmic_wrap.h
+@@ -0,0 +1,7 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef __SOC_MEDIATEK_PMIC_WRAP_H
++#define __SOC_MEDIATEK_PMIC_WRAP_H
++struct device_node;
++struct regmap;
++struct regmap *pwrap_node_to_regmap(struct device_node *np);
++#endif

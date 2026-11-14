@@ -1,0 +1,18 @@
+#!/bin/sh
+# Enable the Fire HD 8 services and the over-the-air update repository.
+
+url=$(cat /usr/share/douglas/repository-url 2>/dev/null)
+if [ -n "$url" ] && ! grep -qxF "$url" /etc/apk/repositories 2>/dev/null; then
+	echo "$url" >> /etc/apk/repositories
+fi
+
+add() { [ -e /etc/runlevels/$2/$1 ] || rc-update add "$1" "$2" >/dev/null 2>&1; }
+add douglas-splash sysinit
+add douglas-firstboot boot
+add douglas-tune default
+add douglas-wifi default
+add douglas-splash-hold default
+
+# the policy files changed; pick them up without a reboot where possible
+[ -x /usr/bin/dconf ] && dconf update >/dev/null 2>&1
+exit 0

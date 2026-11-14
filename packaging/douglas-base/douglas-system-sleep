@@ -1,0 +1,27 @@
+#!/bin/sh
+# elogind system-sleep hook for the Fire HD 8 (2017, douglas).
+# pre:  stop a connected USB cable from waking s2idle at once (the PC keeps the MUSB
+#       interrupt busy; charging continues in hardware) and power the MT6625L Wi-Fi off.
+# post: re-attach the USB gadget and power Wi-Fi back on (NetworkManager reconnects).
+case "$1" in
+pre)
+	for w in /sys/devices/platform/soc/11200000.usb/power/wakeup \
+		 /sys/devices/platform/soc/11200000.usb/musb-hdrc.*/power/wakeup; do
+		[ -f "$w" ] && echo disabled > "$w"
+	done
+	[ -c /dev/wmtWifi ] && echo 0 > /dev/wmtWifi
+	;;
+post)
+	# MUSB is left "not attached" after s2idle; a soft disconnect/connect re-attaches it
+	for u in /sys/class/udc/*; do
+		[ -f "$u/soft_connect" ] || continue
+		echo disconnect > "$u/soft_connect"; sleep 1; echo connect > "$u/soft_connect"
+	done
+	i=0
+	while [ $i -lt 5 ]; do
+		[ -c /dev/wmtWifi ] && echo 1 > /dev/wmtWifi 2>/dev/null && break
+		sleep 1; i=$((i + 1))
+	done
+	;;
+esac
+exit 0

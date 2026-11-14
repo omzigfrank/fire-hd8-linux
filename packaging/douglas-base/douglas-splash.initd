@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Boot splash with a progress bar and a tap-to-show boot log. Runs first in sysinit; the
+# program detaches and exits by itself once the compositor starts, so it is not supervised.
+description="Boot splash with progress bar"
+
+depend() {
+	before *
+}
+
+start() {
+	ebegin "Starting boot splash"
+	/usr/libexec/douglas/douglas-splash </dev/null >/dev/null 2>&1 &
+	eend 0
+}

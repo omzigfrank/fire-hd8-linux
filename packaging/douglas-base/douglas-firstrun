@@ -1,0 +1,41 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# First login on a fresh Fire HD 8 Linux image: welcome the user and let them choose the PIN
+# that unlocks the screen (the image ships with the PIN 1234). Runs once per user.
+DONE="${XDG_CONFIG_HOME:-$HOME/.config}/douglas/firstrun-done"
+[ -e "$DONE" ] && exit 0
+[ -e /var/lib/douglas/pin-set ] && { mkdir -p "${DONE%/*}"; touch "$DONE"; exit 0; }
+
+sleep 8   # let the shell finish starting
+T="Welcome"
+
+zenity --info --title="$T" --width=360 --ok-label="Next" --text="<big><b>Welcome to your Fire HD 8</b></big>
+
+Before you start, choose a PIN. You will type it to unlock the screen.
+
+You can connect to Wi-Fi from the top of the screen, and install apps with <b>Discover</b>." 2>/dev/null
+
+while :; do
+	pin=$(zenity --password --title="Choose a PIN" --width=340 2>/dev/null) || {
+		zenity --question --title="$T" --width=340 --ok-label="Keep 1234" --cancel-label="Choose a PIN" \
+			--text="Keep the PIN <b>1234</b> for now?\n\nAnyone could unlock the tablet with it. You can change it later in Settings → Users." 2>/dev/null && break
+		continue
+	}
+	if [ ${#pin} -lt 4 ]; then
+		zenity --warning --title="$T" --width=320 --text="Please use at least 4 digits or letters." 2>/dev/null
+		continue
+	fi
+	again=$(zenity --password --title="Type the PIN again" --width=340 2>/dev/null) || continue
+	if [ "$pin" != "$again" ]; then
+		zenity --warning --title="$T" --width=320 --text="The two PINs were different. Please try again." 2>/dev/null
+		continue
+	fi
+	if printf '%s\n' "$pin" | doas /usr/libexec/douglas/set-first-pin; then
+		zenity --info --title="$T" --width=320 --text="Your PIN is set." 2>/dev/null
+		break
+	fi
+	zenity --error --title="$T" --width=320 --text="The PIN could not be set. You can change it later in Settings → Users." 2>/dev/null
+	break
+done
+mkdir -p "${DONE%/*}"
+touch "$DONE"

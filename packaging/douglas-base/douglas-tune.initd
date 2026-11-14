@@ -1,0 +1,36 @@
+#!/sbin/openrc-run
+# Performance settings for the MT8163 / Mali-T720: compressed swap in RAM (zram), CPU at
+# full clock, GPU kept at its top frequency, low-latency swap-in. Settings live in
+# /etc/conf.d/douglas-tune.
+
+description="Fire HD 8 performance and memory tuning"
+
+: ${zram_percent:=50}
+: ${zram_algorithm:=lz4}
+: ${cpu_governor:=performance}
+: ${gpu_min_freq:=520000000}
+
+depend() {
+	need localmount
+	after douglas-firstboot
+}
+
+start() {
+	ebegin "Applying Fire HD 8 tuning"
+	if [ -e /sys/block/zram0 ] && ! grep -q zram0 /proc/swaps; then
+		echo "$zram_algorithm" > /sys/block/zram0/comp_algorithm 2>/dev/null || \
+			echo lzo-rle > /sys/block/zram0/comp_algorithm 2>/dev/null
+		kb=$(awk -v p="$zram_percent" '/MemTotal/ { print int($2 * p / 100) }' /proc/meminfo)
+		echo "${kb}K" > /sys/block/zram0/disksize
+		mkswap /dev/zram0 >/dev/null && swapon -p 100 /dev/zram0
+		echo 100 > /proc/sys/vm/swappiness
+		echo 0 > /proc/sys/vm/page-cluster
+	fi
+	for p in /sys/devices/system/cpu/cpufreq/policy*; do
+		echo "$cpu_governor" > "$p/scaling_governor" 2>/dev/null
+	done
+	for d in /sys/class/devfreq/*.gpu; do
+		[ -e "$d/min_freq" ] && [ "$gpu_min_freq" != 0 ] && echo "$gpu_min_freq" > "$d/min_freq" 2>/dev/null
+	done
+	eend 0
+}

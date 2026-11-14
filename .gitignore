@@ -1,0 +1,7 @@
+/build/
+/out/
+*.rsa
+!packaging/douglas-base/douglas-repo.rsa.pub
+douglas-backup-*/
+__pycache__/
+packaging/douglas-base/repository-url

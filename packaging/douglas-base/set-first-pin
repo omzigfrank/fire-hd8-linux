@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Set the desktop user's password (screen PIN) once, from the first-run dialog.
+# Reads the new PIN on stdin. Refuses to run a second time; later changes go through
+# Settings → Users, which asks for the current PIN.
+set -eu
+MARK=/var/lib/douglas/pin-set
+[ "$(id -u)" = 0 ] || { echo "must run as root (via doas)" >&2; exit 1; }
+[ -e "$MARK" ] && { echo "the PIN was already set" >&2; exit 1; }
+user=${DOAS_USER:-}
+[ -n "$user" ] && [ "$user" != root ] || { echo "run through doas from the desktop user" >&2; exit 1; }
+IFS= read -r pin
+[ ${#pin} -ge 4 ] || { echo "PIN too short" >&2; exit 1; }
+printf '%s:%s\n' "$user" "$pin" | chpasswd
+mkdir -p "${MARK%/*}"
+touch "$MARK"

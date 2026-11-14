@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Runs in the desktop session. When a system update needs a restart (a new kernel was written
+# to boot_x by douglas-kernel), show a notification with a "Restart now" button.
+# The flag is /run/douglas/reboot-required; it disappears by itself on the next boot.
+FLAG=/run/douglas/reboot-required
+shown=
+
+notify() {
+	msg=$(cat "$FLAG" 2>/dev/null)
+	[ -n "$msg" ] || msg="A system update has been installed."
+	choice=$(notify-send --app-name="System Update" --icon=system-software-update \
+		--urgency=critical --wait --action=restart="Restart now" --action=later="Later" \
+		"Restart to finish the update" "$msg" 2>/dev/null)
+	if [ "$choice" = restart ]; then
+		loginctl reboot 2>/dev/null || qdbus6 org.kde.Shutdown /Shutdown logoutAndReboot
+	fi
+}
+
+while :; do
+	if [ -e "$FLAG" ]; then
+		stamp=$(stat -c %Y "$FLAG" 2>/dev/null)
+		if [ "$stamp" != "$shown" ]; then
+			shown=$stamp
+			notify &
+		fi
+	fi
+	sleep 30
+done

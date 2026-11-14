@@ -1,0 +1,12 @@
+# Fire HD 8 tuning (/etc/init.d/douglas-tune). Restart the service after editing:
+#   doas rc-service douglas-tune restart
+
+# zram swap size as a percentage of RAM, and its compressor (falls back to lzo-rle)
+zram_percent=50
+zram_algorithm=lz4
+
+# CPU governor: "performance" is smoothest; "schedutil" saves battery
+cpu_governor=performance
+
+# Lowest GPU clock in Hz (520000000 = always top speed; 0 = leave the default)
+gpu_min_freq=520000000

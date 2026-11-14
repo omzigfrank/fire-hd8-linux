@@ -1,0 +1,103 @@
+Fire HD 8 (2017, douglas): arm64-douglas-smp-and-firmware-scanout
+
+---
+--- a/arch/arm64/kernel/psci.c
++++ b/arch/arm64/kernel/psci.c
+@@ -21,6 +21,69 @@
+ #include <asm/errno.h>
+ #include <asm/smp_plat.h>
+ 
++#include <linux/io.h>
++#include <linux/iopoll.h>
++
++/* MT8163 SPM (scpsys) CPU power domains, needed by the vendor ATF ("mt-boot"). */
++#define MT8163_SPM_BASE			0x10006000
++#define SPM_POWERON_CONFIG_SET		0x0000
++#define SPM_PROJECT_CODE		0x0b16
++#define SPM_PWR_STATUS			0x060c
++#define SPM_PWR_STATUS_2ND		0x0610
++#define SPM_PWR_RST_B			BIT(0)
++#define SPM_PWR_ISO			BIT(1)
++#define SPM_PWR_ON			BIT(2)
++#define SPM_PWR_ON_2ND			BIT(3)
++#define SPM_PWR_CLK_DIS			BIT(4)
++#define SPM_SRAM_CKISO			BIT(5)
++#define SPM_SRAM_ISOINT_B		BIT(6)
++#define SPM_L1_PDN			BIT(0)
++#define SPM_L1_PDN_ACK			BIT(8)
++
++static void __iomem *douglas_spm;
++
++static int douglas_spm_cpu_on(unsigned int cpu)
++{
++	static const u32 pwr_con[] = { 0x0200, 0x0218, 0x021c, 0x0220 };
++	u32 l1 = 0x025c + 8 * cpu, bit = BIT(9 + cpu), v;
++	void __iomem *con;
++	int ret;
++
++	if (cpu == 0 || cpu > 3)
++		return 0;
++	if (!douglas_spm)
++		douglas_spm = ioremap(MT8163_SPM_BASE, 0x1000);
++	if (!douglas_spm)
++		return -ENOMEM;
++	con = douglas_spm + pwr_con[cpu];
++
++	writel(SPM_PROJECT_CODE << 16 | BIT(0), douglas_spm + SPM_POWERON_CONFIG_SET);
++	writel(readl(con) | SPM_PWR_ON, con);
++	udelay(1);
++	writel(readl(con) | SPM_PWR_ON_2ND, con);
++	ret = readl_poll_timeout_atomic(douglas_spm + SPM_PWR_STATUS, v, v & bit, 1, 10000);
++	if (!ret)
++		ret = readl_poll_timeout_atomic(douglas_spm + SPM_PWR_STATUS_2ND, v, v & bit, 1, 10000);
++	if (ret) {
++		pr_err("douglas: CPU%d power domain did not come up\n", cpu);
++		return ret;
++	}
++	writel(readl(con) & ~SPM_PWR_ISO, con);
++	writel(readl(douglas_spm + l1) & ~SPM_L1_PDN, douglas_spm + l1);
++	ret = readl_poll_timeout_atomic(douglas_spm + l1, v, !(v & SPM_L1_PDN_ACK), 1, 10000);
++	if (ret) {
++		pr_err("douglas: CPU%d L1 did not power up\n", cpu);
++		return ret;
++	}
++	udelay(1);
++	writel(readl(con) | SPM_SRAM_ISOINT_B, con);
++	writel(readl(con) & ~SPM_SRAM_CKISO, con);
++	writel(readl(con) & ~SPM_PWR_CLK_DIS, con);
++	writel(readl(con) | SPM_PWR_RST_B, con);
++	pr_info("douglas: CPU%d power domain on\n", cpu);
++	return 0;
++}
++
+ static int __init cpu_psci_cpu_init(unsigned int cpu)
+ {
+ 	return 0;
+@@ -43,6 +106,9 @@
+ 	if (err && err != -EPERM)
+ 		pr_err("failed to boot CPU%d (%d)\n", cpu, err);
+ 
++	if (!err && of_machine_is_compatible("amazon,douglas"))
++		err = douglas_spm_cpu_on(cpu);
++
+ 	return err;
+ }
+ 
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -330,6 +330,15 @@
+ 	}
+ 
+ 	arm64_memblock_init();
++	/*
++	 * Amazon Fire HD 8 (2017, "douglas"): the stock bootloader keeps scanning out of
++	 * 0x98600000-0x99600000 but its DT fixups can drop the no-map reservation. Keep the
++	 * area out of the linear map so simpledrm can map it and nothing else allocates it.
++	 */
++	if (of_flat_dt_is_compatible(of_get_flat_dt_root(), "amazon,douglas")) {
++		memblock_reserve(0x98600000, 0x1000000);
++		memblock_mark_nomap(0x98600000, 0x1000000);
++	}
+ 
+ 	paging_init();
+ 

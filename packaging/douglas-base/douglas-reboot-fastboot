@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Restart into the unlocked bootloader's fastboot mode (for flashing from a PC).
+# The amonet-patched LK stops in fastboot when the MISC partition starts with FASTBOOT_PLEASE.
+[ "$(id -u)" = 0 ] || exec doas "$0" "$@"
+p=
+for d in /sys/class/block/mmcblk0p*; do grep -qx PARTNAME=MISC "$d/uevent" && p=/dev/${d##*/}; done
+[ -n "$p" ] || { echo "MISC partition not found" >&2; exit 1; }
+printf 'FASTBOOT_PLEASE\0' | dd of="$p" bs=16 count=1 conv=notrunc,fsync 2>/dev/null
+sync
+reboot

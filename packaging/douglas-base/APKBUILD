@@ -1,0 +1,104 @@
+# Maintainer: Fire HD 8 Linux <noreply@users.noreply.github.com>
+# Fire HD 8 (2017, "douglas") Linux: device support files.
+# Built by packaging/build.sh inside an Alpine aarch64 chroot.
+pkgname=douglas-base
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="Amazon Fire HD 8 (2017) support: Wi-Fi/Bluetooth tools, sound, sleep, tuning, updates"
+url="https://github.com/OWNER/REPO"
+arch="aarch64"
+license="MIT AND GPL-2.0-only"
+depends="dbus doas e2fsprogs libnotify zenity"
+makedepends="linux-headers python3"
+install="$pkgname.post-install $pkgname.post-upgrade"
+options="!check !fhs"
+source="
+	douglas-wifi.initd
+	douglas-firstboot.initd
+	douglas-tune.initd
+	douglas-tune.confd
+	douglas-usbshell.initd
+	douglas-splash.initd
+	douglas-splash-hold.initd
+	douglas-firmware
+	douglas-system-sleep
+	douglas-logind.conf
+	douglas-sleep.conf
+	douglas-nm-wifi.conf
+	douglas-polkit.rules
+	douglas-doas.conf
+	douglas-update-notify
+	douglas-update-notify.desktop
+	douglas-firstrun
+	douglas-firstrun.desktop
+	set-first-pin
+	douglas-reboot-fastboot
+	douglas-defaults.js
+	ucm-confd-douglas.conf
+	ucm-douglas.conf
+	ucm-HiFi.conf
+	repository-url
+	douglas-repo.rsa.pub
+	douglas-splash.c
+	font16x32.h
+	gen-splash.py
+	wmt_loader.c
+	stp_uart_launcher.c
+	wmt_loopback.c
+	wmt_ioctl.h
+	"
+builddir="$srcdir"
+
+build() {
+	cd "$srcdir"
+	gcc $CFLAGS -Os -Wall -static -o douglas-splash douglas-splash.c
+	for t in wmt_loader stp_uart_launcher wmt_loopback; do
+		gcc $CFLAGS -Os -w -D_GNU_SOURCE -Wno-error=int-conversion \
+			-Wno-error=implicit-function-declaration -o $t $t.c -lpthread
+	done
+	python3 gen-splash.py font16x32.h splash.bgrx
+	gzip -9n -c splash.bgrx > splash.bgrx.gz
+}
+
+package() {
+	cd "$srcdir"
+	local lx="$pkgdir"/usr/libexec/douglas
+	install -Dm755 douglas-splash "$lx"/douglas-splash
+	install -Dm755 wmt_loader "$lx"/wmt_loader
+	install -Dm755 stp_uart_launcher "$lx"/stp_uart_launcher
+	install -Dm755 wmt_loopback "$lx"/wmt_loopback
+	install -Dm755 douglas-update-notify "$lx"/douglas-update-notify
+	install -Dm755 douglas-firstrun "$lx"/douglas-firstrun
+	install -Dm755 set-first-pin "$lx"/set-first-pin
+	install -Dm755 douglas-firmware "$pkgdir"/usr/bin/douglas-firmware
+	install -Dm755 douglas-reboot-fastboot "$pkgdir"/usr/bin/douglas-reboot-fastboot
+
+	for s in wifi firstboot tune usbshell splash splash-hold; do
+		install -Dm755 douglas-$s.initd "$pkgdir"/etc/init.d/douglas-$s
+	done
+	install -Dm644 douglas-tune.confd "$pkgdir"/etc/conf.d/douglas-tune
+
+	install -Dm755 douglas-system-sleep "$pkgdir"/usr/lib/elogind/system-sleep/douglas
+	install -Dm644 douglas-logind.conf "$pkgdir"/etc/elogind/logind.conf.d/50-douglas.conf
+	install -Dm644 douglas-sleep.conf "$pkgdir"/etc/elogind/sleep.conf.d/50-douglas.conf
+	install -Dm644 douglas-nm-wifi.conf "$pkgdir"/etc/NetworkManager/conf.d/50-douglas-wifi.conf
+	install -Dm644 douglas-polkit.rules "$pkgdir"/etc/polkit-1/rules.d/50-douglas.rules
+	install -Dm600 douglas-doas.conf "$pkgdir"/etc/doas.d/50-douglas.conf
+
+	install -Dm644 douglas-update-notify.desktop "$pkgdir"/etc/xdg/autostart/douglas-update-notify.desktop
+	install -Dm644 douglas-firstrun.desktop "$pkgdir"/etc/xdg/autostart/douglas-firstrun.desktop
+	install -Dm644 douglas-defaults.js \
+		"$pkgdir"/usr/share/plasma/shells/org.kde.plasma.mobileshell/contents/updates/douglas-defaults.js
+
+	install -Dm644 ucm-confd-douglas.conf "$pkgdir"/usr/share/alsa/ucm2/conf.d/douglas/douglas.conf
+	install -Dm644 ucm-douglas.conf "$pkgdir"/usr/share/alsa/ucm2/MediaTek/douglas/douglas.conf
+	install -Dm644 ucm-HiFi.conf "$pkgdir"/usr/share/alsa/ucm2/MediaTek/douglas/HiFi.conf
+
+	install -Dm644 splash.bgrx "$pkgdir"/usr/share/douglas/splash.bgrx
+	install -Dm644 splash.bgrx.gz "$pkgdir"/usr/share/douglas/splash.bgrx.gz
+
+	install -Dm644 repository-url "$pkgdir"/usr/share/douglas/repository-url
+	install -Dm644 douglas-repo.rsa.pub "$pkgdir"/etc/apk/keys/douglas-repo.rsa.pub
+	mkdir -p "$pkgdir"/etc
+	echo "Fire HD 8 Linux $pkgver-r$pkgrel" > "$pkgdir"/etc/douglas-release
+}

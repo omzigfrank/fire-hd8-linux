@@ -1,0 +1,61 @@
+#!/bin/busybox sh
+# SPDX-License-Identifier: MIT
+# Initramfs for Linux on the Amazon Fire HD 8 (2017, "douglas").
+#
+# Mounts the Linux root filesystem from the eMMC "userdata" partition, draws the boot
+# splash and switches to it. If that fails (or "douglas_rescue" is on the kernel command
+# line) it stays here and offers a root shell on the USB serial gadget (ttyGS0) and the
+# console, so a broken install can still be inspected from a PC.
+/bin/busybox --install -s /bin
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mkdir -p /dev/pts /run /tmp /newroot
+mount -t devpts devpts /dev/pts
+exec >/dev/kmsg 2>&1
+echo "douglas-init: Linux $(uname -r)"
+
+# eMMC partitions are found by name, never by number.
+find_part() {
+	for p in /sys/class/block/mmcblk0p*; do
+		[ -e "$p/uevent" ] && grep -qx "PARTNAME=$1" "$p/uevent" && echo "/dev/${p##*/}"
+	done
+}
+i=0
+while [ $i -lt 30 ] && [ -z "$(find_part userdata)" ]; do sleep 1; i=$((i + 1)); done
+root_dev=$(find_part userdata)
+echo "douglas-init: userdata=${root_dev:-not found}"
+
+if [ -n "$root_dev" ] && ! grep -q douglas_rescue /proc/cmdline \
+   && mount -t ext4 -o rw,noatime "$root_dev" /newroot; then
+	if [ -f /newroot/etc/douglas-release ] && [ -x /newroot/sbin/init ]; then
+		for s in /newroot/etc/douglas/splash.bgrx.gz /newroot/usr/share/douglas/splash.bgrx.gz; do
+			[ -f "$s" ] && [ -c /dev/fb0 ] || continue
+			echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
+			zcat "$s" > /dev/fb0 2>/dev/null
+			break
+		done
+		echo "douglas-init: starting the system on $root_dev"
+		umount /dev/pts
+		mount --move /dev /newroot/dev
+		mount --move /proc /newroot/proc
+		mount --move /sys /newroot/sys
+		exec switch_root /newroot /sbin/init
+	fi
+	echo "douglas-init: $root_dev has no Fire HD 8 Linux system on it"
+	umount /newroot
+fi
+
+echo "douglas-init: rescue shell on USB serial and console"
+(
+	while [ ! -c /dev/ttyGS0 ]; do sleep 1; done
+	while :; do
+		echo "Fire HD 8 Linux rescue shell ($(uname -r))" >/dev/ttyGS0
+		setsid /bin/sh -i </dev/ttyGS0 >/dev/ttyGS0 2>&1
+		sleep 1
+	done
+) &
+while :; do
+	/bin/sh -i </dev/console >/dev/console 2>&1
+	sleep 1
+done

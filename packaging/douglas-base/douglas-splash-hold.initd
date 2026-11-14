@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# Pause the desktop start while the boot log view of the splash is open (the splash creates
+# the hold file while that view is shown). Gives up after 5 minutes, or at once if the
+# splash program is no longer running.
+description="Wait for the boot log view to close"
+
+depend() {
+	before tinydm
+	after networkmanager
+}
+
+start() {
+	local i=0
+	[ -e /run/douglas-splash.hold ] && einfo "Boot log open - waiting"
+	while [ -e /run/douglas-splash.hold ] && [ $i -lt 600 ]; do
+		pidof douglas-splash >/dev/null || break
+		sleep 0.5
+		i=$((i + 1))
+	done
+	rm -f /run/douglas-splash.hold
+	return 0
+}

@@ -1,0 +1,51 @@
+Fire HD 8 (2017, douglas): mmc-genpd-keep-powered-for-s2idle
+
+---
+--- a/drivers/mmc/core/mmc.c
++++ b/drivers/mmc/core/mmc.c
+@@ -10,6 +10,7 @@
+ #include <linux/err.h>
+ #include <linux/of.h>
+ #include <linux/slab.h>
++#include <linux/property.h>
+ #include <linux/stat.h>
+ #include <linux/string.h>
+ #include <linux/pm_runtime.h>
+@@ -2157,6 +2158,12 @@
+ 			goto out;
+ 	}
+ 
++	if (pm_type == MMC_POWEROFF_SUSPEND &&
++	    device_property_read_bool(mmc_dev(host), "douglas,keep-card-powered")) {
++		pr_info("%s: douglas: cache flushed, card left powered for suspend\n", mmc_hostname(host));
++		goto out;
++	}
++
+ 	if (mmc_card_can_poweroff_notify(host->card) &&
+ 	    mmc_host_can_poweroff_notify(host, pm_type))
+ 		err = mmc_poweroff_notify(host->card, notify_type);
+--- a/drivers/pmdomain/core.c
++++ b/drivers/pmdomain/core.c
+@@ -1401,12 +1401,21 @@
+  * transitions. The "noirq" callbacks may be executed asynchronously, thus in
+  * these cases the lock must be held.
+  */
++static bool douglas_genpd_keep_on;
++
++static int __init douglas_genpd_keep_on_setup(char *str)
++{
++	douglas_genpd_keep_on = true;
++	return 1;
++}
++__setup("douglas_genpd_keep_on", douglas_genpd_keep_on_setup);
++
+ static void genpd_sync_power_off(struct generic_pm_domain *genpd, bool use_lock,
+ 				 unsigned int depth)
+ {
+ 	struct gpd_link *link;
+ 
+-	if (!genpd_status_on(genpd) || genpd_is_always_on(genpd))
++	if (!genpd_status_on(genpd) || genpd_is_always_on(genpd) || douglas_genpd_keep_on)
+ 		return;
+ 
+ 	if (genpd->suspended_count != genpd->device_count

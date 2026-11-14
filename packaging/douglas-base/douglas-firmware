@@ -1,0 +1,74 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# douglas-firmware: copy this tablet's own Wi-Fi/Bluetooth firmware and calibration data
+# into place. Nothing proprietary is shipped with Fire HD 8 Linux; everything comes from
+# the tablet itself:
+#   * firmware + WMT_SOC.cfg from the Fire OS "system" partition (left untouched by the install)
+#   * Wi-Fi calibration/MAC (NVRAM) from douglas-nvram.tgz, which the installer saves to the
+#     "cache" partition from Fire OS's /data/nvram before userdata is overwritten
+#
+#   douglas-firmware extract   copy what is missing (run once at first boot)
+#   douglas-firmware status    show what is installed
+set -u
+FW=/etc/firmware
+NV=$FW/nvram
+CFG=/system/etc/firmware/WMT_SOC.cfg
+
+find_part() {
+	for p in /sys/class/block/mmcblk0p*; do
+		[ -e "$p/uevent" ] && grep -qx "PARTNAME=$1" "$p/uevent" && echo "/dev/${p##*/}"
+	done
+}
+
+status() {
+	for f in $FW/WIFI_RAM_CODE_8163 $FW/ROMv2_lm_patch_1_0_hdr.bin $FW/ROMv2_lm_patch_1_1_hdr.bin $CFG $NV/WIFI; do
+		if [ -s "$f" ]; then echo "ok       $f"; else echo "missing  $f"; fi
+	done
+}
+
+extract() {
+	[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+	mkdir -p $FW $NV /system/etc/firmware
+	tmp=$(mktemp -d)
+	trap 'umount "$tmp" 2>/dev/null; rmdir "$tmp"' EXIT
+
+	sys=$(find_part system)
+	if [ -n "$sys" ] && mount -o ro "$sys" "$tmp" 2>/dev/null; then
+		for f in WIFI_RAM_CODE_8163 ROMv2_lm_patch_1_0_hdr.bin ROMv2_lm_patch_1_1_hdr.bin; do
+			if [ ! -s $FW/$f ] && cp "$tmp/etc/firmware/$f" $FW/ 2>/dev/null; then
+				echo "firmware: $f"
+			fi
+		done
+		if [ ! -s $CFG ] && cp "$tmp/etc/firmware/WMT_SOC.cfg" $CFG 2>/dev/null; then
+			echo "firmware: WMT_SOC.cfg"
+		fi
+		umount "$tmp"
+	else
+		echo "warning: could not mount the Fire OS system partition" >&2
+	fi
+
+	if [ ! -s $NV/WIFI ]; then
+		cache=$(find_part cache)
+		if [ -n "$cache" ] && mount -o ro "$cache" "$tmp" 2>/dev/null; then
+			if [ -f "$tmp/douglas-nvram.tgz" ]; then
+				x=$(mktemp -d)
+				tar xzf "$tmp/douglas-nvram.tgz" -C "$x"
+				for f in WIFI WIFI_CUSTOM; do
+					src=$(find "$x" -name "$f" -type f | head -1)
+					[ -n "$src" ] && cp "$src" $NV/$f && echo "nvram: $f"
+				done
+				rm -rf "$x"
+			fi
+			umount "$tmp"
+		fi
+		[ -s $NV/WIFI ] || echo "warning: no Wi-Fi NVRAM backup found (see docs/INSTALL.md); Wi-Fi may not start" >&2
+	fi
+	chmod 644 $FW/* $NV/* 2>/dev/null
+	status
+}
+
+case "${1:-status}" in
+extract) extract ;;
+status) status ;;
+*) echo "usage: douglas-firmware extract|status" >&2; exit 2 ;;
+esac

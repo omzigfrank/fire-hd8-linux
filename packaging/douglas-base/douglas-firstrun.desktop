@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=First-run setup
+Exec=/usr/libexec/douglas/douglas-firstrun
+NoDisplay=true
+X-KDE-autostart-phase=2

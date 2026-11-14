@@ -1,0 +1,27 @@
+# Packages installed into the Fire HD 8 Linux root filesystem (Alpine v3.24, aarch64).
+# One or more per line; '#' starts a comment.
+
+# base system
+alpine-base openrc busybox-openrc doas nano htop tzdata e2fsprogs
+eudev eudev-openrc udev-init-scripts udev-init-scripts-openrc
+dbus dbus-openrc dbus-x11 elogind elogind-openrc polkit-elogind
+
+# desktop: Plasma Mobile on the Mali-T720 (Panfrost)
+tinydm plasma-mobile plasma-settings plasma-nano kwin kscreen powerdevil bluedevil
+breeze breeze-icons maliit-keyboard polkit-kde-agent-1 kwallet-pam
+xdg-desktop-portal xdg-desktop-portal-kde mesa-dri-gallium
+font-noto font-dejavu
+
+# app store and updates
+discover discover-backend-apk discover-backend-flatpak apk-polkit-rs flatpak
+
+# hardware
+networkmanager networkmanager-wifi networkmanager-openrc networkmanager-cli wpa_supplicant iw
+bluez bluez-openrc pipewire pipewire-pulse pipewire-spa-bluez wireplumber
+alsa-utils alsa-ucm-conf iio-sensor-proxy iio-sensor-proxy-openrc upower
+
+# apps
+firefox okular libreoffice-writer libreoffice-calc libreoffice-impress
+
+# Fire HD 8 support and kernel (from the local update repository)
+douglas-base douglas-kernel

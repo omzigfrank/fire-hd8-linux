@@ -1,0 +1,994 @@
+Fire HD 8 (2017, douglas): drm-sysfb-douglas-backlight-and-zero-copy
+
+---
+--- a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
+@@ -44,6 +44,7 @@
+ 
+ struct mtk_disp_gamma_data {
+ 	bool has_dither;
++	bool has_type;
+ 	bool lut_diff;
+ 	u16 lut_bank_size;
+ 	u16 lut_size;
+@@ -189,7 +190,7 @@
+ 
+ 	cfg_val = readl(gamma->regs + DISP_GAMMA_CFG);
+ 
+-	if (!gamma->data->has_dither) {
++	if (gamma->data->has_type) {
+ 		/* Descending or Rising LUT */
+ 		if (mtk_gamma_lut_is_descending(lut, gamma->data->lut_size - 1))
+ 			cfg_val |= FIELD_PREP(GAMMA_LUT_TYPE, 1);
+@@ -293,14 +294,24 @@
+ 	component_del(&pdev->dev, &mtk_disp_gamma_component_ops);
+ }
+ 
++static const struct mtk_disp_gamma_data mt8163_gamma_driver_data = {
++	.has_dither = false,
++	.has_type = false,
++	.lut_bank_size = 512,
++	.lut_bits = 10,
++	.lut_size = 512,
++};
++
+ static const struct mtk_disp_gamma_data mt8173_gamma_driver_data = {
+ 	.has_dither = true,
++	.has_type = false,
+ 	.lut_bank_size = 512,
+ 	.lut_bits = 10,
+ 	.lut_size = 512,
+ };
+ 
+ static const struct mtk_disp_gamma_data mt8183_gamma_driver_data = {
++	.has_type = true,
+ 	.lut_bank_size = 512,
+ 	.lut_bits = 10,
+ 	.lut_diff = true,
+@@ -308,6 +319,7 @@
+ };
+ 
+ static const struct mtk_disp_gamma_data mt8195_gamma_driver_data = {
++	.has_type = true,
+ 	.lut_bank_size = 256,
+ 	.lut_bits = 12,
+ 	.lut_diff = true,
+@@ -315,6 +327,8 @@
+ };
+ 
+ static const struct of_device_id mtk_disp_gamma_driver_dt_match[] = {
++	{ .compatible = "mediatek,mt8163-disp-gamma",
++	  .data = &mt8163_gamma_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-gamma",
+ 	  .data = &mt8173_gamma_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-gamma",
+--- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
++++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+@@ -111,6 +111,19 @@
+ 	DDP_COMPONENT_PWM2,
+ };
+ 
++static unsigned int mt8163_mtk_ddp_main[] = {
++	DDP_COMPONENT_OVL0,
++	DDP_COMPONENT_COLOR0,
++	DDP_COMPONENT_CCORR,
++	DDP_COMPONENT_AAL0,
++	DDP_COMPONENT_GAMMA,
++	DDP_COMPONENT_DITHER0,
++	DDP_COMPONENT_RDMA0,
++	DDP_COMPONENT_UFOE,
++	DDP_COMPONENT_DSI0,
++	DDP_COMPONENT_PWM0,
++};
++
+ static unsigned int mt8167_mtk_ddp_main[] = {
+ 	DDP_COMPONENT_OVL0,
+ 	DDP_COMPONENT_COLOR0,
+@@ -259,6 +272,12 @@
+ 	.mmsys_dev_num = 1,
+ };
+ 
++static const struct mtk_mmsys_driver_data mt8163_mmsys_driver_data = {
++	.main_path = mt8163_mtk_ddp_main,
++	.main_len = ARRAY_SIZE(mt8163_mtk_ddp_main),
++	.mmsys_dev_num = 1,
++};
++
+ static const struct mtk_mmsys_driver_data mt8167_mmsys_driver_data = {
+ 	.main_path = mt8167_mtk_ddp_main,
+ 	.main_len = ARRAY_SIZE(mt8167_mtk_ddp_main),
+@@ -338,6 +357,8 @@
+ 	  .data = &mt7623_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt2712-mmsys",
+ 	  .data = &mt2712_mmsys_driver_data},
++	{ .compatible = "mediatek,mt8163-mmsys",
++	  .data = &mt8163_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8167-mmsys",
+ 	  .data = &mt8167_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8173-mmsys",
+@@ -730,6 +751,8 @@
+ 	  .data = (void *)MTK_DISP_DITHER },
+ 	{ .compatible = "mediatek,mt8195-disp-dsc",
+ 	  .data = (void *)MTK_DISP_DSC },
++	{ .compatible = "mediatek,mt8163-disp-gamma",
++	  .data = (void *)MTK_DISP_GAMMA, },
+ 	{ .compatible = "mediatek,mt8167-disp-gamma",
+ 	  .data = (void *)MTK_DISP_GAMMA, },
+ 	{ .compatible = "mediatek,mt8173-disp-gamma",
+@@ -744,6 +767,8 @@
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt2712-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
++	{ .compatible = "mediatek,mt8163-disp-mutex",
++	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8167-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8173-disp-mutex",
+@@ -820,6 +845,8 @@
+ 	  .data = (void *)MTK_DPI },
+ 	{ .compatible = "mediatek,mt2701-dsi",
+ 	  .data = (void *)MTK_DSI },
++	{ .compatible = "mediatek,mt8163-dsi",
++	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8173-dsi",
+ 	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8183-dsi",
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -105,6 +105,7 @@
+ 
+ #define DSI_RACK		0x84
+ #define RACK				BIT(0)
++#define RACK_BYPASS			BIT(1)
+ 
+ #define DSI_PHY_LCCON		0x104
+ #define LC_HS_TX_EN			BIT(0)
+@@ -194,6 +195,8 @@
+ 	bool has_size_ctl;
+ 	bool cmdq_long_packet_ctl;
+ 	bool support_per_frame_lp;
++	bool bypass_rack;
++	bool no_vm_done_irq;
+ };
+ 
+ struct mtk_dsi {
+@@ -605,9 +608,14 @@
+ 
+ static void mtk_dsi_set_interrupt_enable(struct mtk_dsi *dsi)
+ {
+-	u32 inten = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG;
++	u32 inten = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG;
++
++	if (!dsi->driver_data->no_vm_done_irq)
++		inten |= VM_DONE_INT_FLAG;
+ 
+ 	writel(inten, dsi->regs + DSI_INTEN);
++	if (dsi->driver_data->bypass_rack)
++		writel(RACK_BYPASS, dsi->regs + DSI_RACK);
+ }
+ 
+ static void mtk_dsi_irq_data_set(struct mtk_dsi *dsi, u32 irq_bit)
+@@ -649,10 +657,12 @@
+ 	status = readl(dsi->regs + DSI_INTSTA) & flag;
+ 
+ 	if (status) {
+-		do {
+-			mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
+-			tmp = readl(dsi->regs + DSI_INTSTA);
+-		} while (tmp & DSI_BUSY);
++		if (!dsi->driver_data->bypass_rack) {
++			do {
++				mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
++				tmp = readl(dsi->regs + DSI_INTSTA);
++			} while (tmp & DSI_BUSY);
++		}
+ 
+ 		mtk_dsi_mask(dsi, DSI_INTSTA, status, 0);
+ 		mtk_dsi_irq_data_set(dsi, status);
+@@ -668,12 +678,16 @@
+ 	mtk_dsi_set_cmd_mode(dsi);
+ 	struct drm_device *drm = dsi->bridge.dev;
+ 
+-	if (!mtk_dsi_wait_for_irq_done(dsi, irq_flag, t)) {
++	/* MT8163 does not signal VM_DONE when switching to command mode.
++	 * The command sender still waits for DSI_BUSY to clear.
++	 */
++	if (!dsi->driver_data->no_vm_done_irq &&
++	    !mtk_dsi_wait_for_irq_done(dsi, irq_flag, t)) {
+ 		drm_err(drm, "failed to switch cmd mode\n");
+ 		return -ETIME;
+-	} else {
+-		return 0;
+ 	}
++
++	return 0;
+ }
+ 
+ static void mtk_dsi_lane_ready(struct mtk_dsi *dsi)
+@@ -730,6 +744,12 @@
+ 		goto err_disable_engine_clk;
+ 	}
+ 
++	/*
++	 * Some SoC's DSI controllers may default to video mode after
++	 * asserting reset. We need to start in command mode initially
++	 * to be ready for sending initialization commands.
++	 */
++	mtk_dsi_set_cmd_mode(dsi);
+ 	mtk_dsi_enable(dsi);
+ 
+ 	if (dsi->driver_data->has_shadow_ctl)
+@@ -1272,6 +1292,13 @@
+ 	mipi_dsi_host_unregister(&dsi->host);
+ }
+ 
++static const struct mtk_dsi_driver_data mt8163_dsi_driver_data = {
++	.reg_cmdq_off = 0x200,
++	.reg_vm_cmd_off = 0x130,
++	.bypass_rack = true,
++	.no_vm_done_irq = true,
++};
++
+ static const struct mtk_dsi_driver_data mt8173_dsi_driver_data = {
+ 	.reg_cmdq_off = 0x200,
+ 	.reg_vm_cmd_off = 0x130,
+@@ -1312,6 +1339,7 @@
+ 
+ static const struct of_device_id mtk_dsi_of_match[] = {
+ 	{ .compatible = "mediatek,mt2701-dsi", .data = &mt2701_dsi_driver_data },
++	{ .compatible = "mediatek,mt8163-dsi", .data = &mt8163_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8167-dsi", .data = &mt2701_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8173-dsi", .data = &mt8173_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8183-dsi", .data = &mt8183_dsi_driver_data },
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -219,6 +219,15 @@
+ 	  7.0" 1200x1920 IPS LCD panel that uses a MIPI-DSI interface
+ 	  and others.
+ 
++config DRM_PANEL_HIMAX_HX8379C_ROOK
++	tristate "Himax HX8379C-based panels"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y if you want to enable support for panels based on the
++	  Himax HX8379C controller.
++
+ config DRM_PANEL_HIMAX_HX83102
+ 	tristate "Himax HX83102-based panels"
+ 	depends on OF
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -22,6 +22,7 @@
+ obj-$(CONFIG_DRM_PANEL_FEIYANG_FY07024DI26A30D) += panel-feiyang-fy07024di26a30d.o
+ obj-$(CONFIG_DRM_PANEL_FOCALTECH_OTA7290B) += panel-focaltech-ota7290b.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX8279) += panel-himax-hx8279.o
++obj-$(CONFIG_DRM_PANEL_HIMAX_HX8379C_ROOK) += panel-himax-hx8379c-amazon-rook.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83102) += panel-himax-hx83102.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83112A) += panel-himax-hx83112a.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83112B) += panel-himax-hx83112b.o
+--- a/drivers/gpu/drm/panel/panel-himax-hx8379c-amazon-rook.c
++++ b/drivers/gpu/drm/panel/panel-himax-hx8379c-amazon-rook.c
+@@ -0,0 +1,418 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2025-2026 Ben Grisdale <bengris32@protonmail.ch>
++ */
++
++#include <linux/backlight.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_probe_helper.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++#define PANEL_INX	0
++#define PANEL_TIANMA	1
++#define PANEL_BOE	2
++#define PANEL_INXE	3
++
++/* TODO */
++#define SKIP_PANEL_INIT
++
++struct rook_hx8379c_info {
++	const struct drm_display_mode *mode;
++	unsigned long mode_flags;
++	void (*init_sequence)(struct mipi_dsi_multi_context *dsi_ctx);
++};
++
++struct rook_hx8379c {
++	struct drm_panel panel;
++	const struct rook_hx8379c_info *info;
++	struct mipi_dsi_device *dsi;
++	struct regulator_bulk_data *supplies;
++	struct gpio_desc *id0_gpio;
++	struct gpio_desc *id1_gpio;
++	struct gpio_desc *reset_gpio;
++};
++
++static const struct regulator_bulk_data rook_hx8379c_supplies[] = {
++	{ .supply = "vcn" },
++	{ .supply = "vmch" },
++	{ .supply = "v1p8" },
++	{ .supply = "v3p3" },
++};
++
++static inline
++struct rook_hx8379c *to_rook_hx8379c(struct drm_panel *panel)
++{
++	return container_of(panel, struct rook_hx8379c, panel);
++}
++
++#ifndef SKIP_PANEL_INIT
++static void rook_hx8379c_reset(struct rook_hx8379c *ctx)
++{
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(1000, 2000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	usleep_range(1000, 2000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(5000, 6000);
++}
++#endif
++
++static int rook_hx8379c_unprepare(struct drm_panel *panel)
++{
++	struct rook_hx8379c *ctx = to_rook_hx8379c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	ctx->dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++
++#ifndef SKIP_PANEL_INIT
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	usleep_range(5000, 6000);
++
++	regulator_bulk_disable(ARRAY_SIZE(rook_hx8379c_supplies),
++			       ctx->supplies);
++#endif
++
++	return dsi_ctx.accum_err;
++}
++
++static int rook_hx8379c_prepare(struct drm_panel *panel)
++{
++	struct rook_hx8379c *ctx = to_rook_hx8379c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++#ifndef SKIP_PANEL_INIT
++	int ret;
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(rook_hx8379c_supplies),
++				    ctx->supplies);
++	if (ret < 0) {
++		dev_err(panel->dev, "Failed to enable regulators\n");
++		return ret;
++	}
++
++	/* Reset the panel ready for initialization in enable */
++	rook_hx8379c_reset(ctx);
++#endif
++
++	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++#ifndef SKIP_PANEL_INIT
++	/* Perform the panel-specific init sequence. */
++	ctx->info->init_sequence(&dsi_ctx);
++#endif
++
++	return dsi_ctx.accum_err;
++}
++
++static int rook_hx8379c_enable(struct drm_panel *panel)
++{
++	struct rook_hx8379c *ctx = to_rook_hx8379c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++
++#ifndef SKIP_PANEL_INIT
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 20);
++#endif
++
++	return dsi_ctx.accum_err;
++}
++
++static int rook_hx8379c_disable(struct drm_panel *panel)
++{
++	struct rook_hx8379c *ctx = to_rook_hx8379c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++#ifndef SKIP_PANEL_INIT
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 20);
++#endif
++
++	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++
++	return dsi_ctx.accum_err;
++}
++
++static int rook_hx8379c_get_modes(struct drm_panel *panel,
++				struct drm_connector *connector)
++{
++	struct rook_hx8379c *ctx = to_rook_hx8379c(panel);
++
++	return drm_connector_helper_get_modes_fixed(connector, ctx->info->mode);
++}
++
++static const struct drm_display_mode rook_hx8379c_inx_mode = {
++	.clock       = 26166,
++	.hdisplay    = 480,
++	.hsync_start = 480 + 160,
++	.hsync_end   = 480 + 160 + 100,
++	.htotal      = 480 + 160 + 100 + 100,
++	.vdisplay    = 480,
++	.vsync_start = 480 + 108,
++	.vsync_end   = 480 + 108 + 3,
++	.vtotal      = 480 + 108 + 3 + 12,
++	.width_mm    = 79, /* 78.74 mm */
++	.height_mm   = 79, /* 78.74 mm */
++	.flags       = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
++	.type        = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static void rook_hx8379c_inx_init(struct mipi_dsi_multi_context *dsi_ctx)
++{
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb9, 0xff, 0x83, 0x79);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb1, 0x44, 0x18, 0x18, 0x31, 0x31, 0x50, 0xd0, 0xf2, 0x9e, 0x80, 0x38, 0x38, 0xf8, 0x33, 0x32, 0x22);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb2, 0x80, 0x14, 0x0f, 0x0a, 0x00, 0xb7, 0x11, 0x42, 0x1d);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb4, 0xd2, 0xd2, 0xd2, 0xd2, 0xd2, 0xd2, 0x10, 0xea, 0x1c, 0xea);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc7, 0x00, 0x00, 0x00, 0xc0);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xcc, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd2, 0x33);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd3, 0x00, 0x00, 0x00, 0x3c, 0x01, 0x14, 0x14, 0x32, 0x10, 0x03, 0x00, 0x03, 0x01, 0xf1, 0x01, 0xf1, 0x01, 0xf4, 0x01, 0xf4, 0x49, 0x44, 0x05, 0x05, 0x47, 0x05, 0x05, 0x47, 0x0d);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd5, 0x20, 0x21, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x1a, 0x1a, 0x1b, 0x1b, 0x18, 0x18, 0x28, 0x29, 0x24, 0x25, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd6, 0x25, 0x24, 0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x05, 0x04, 0x1a, 0x1a, 0x1b, 0x1b, 0x18, 0x18, 0x29, 0x28, 0x21, 0x20, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xe0, 0x00, 0x09, 0x0e, 0x2d, 0x33, 0x3f, 0x19, 0x39, 0x06, 0x0a, 0x0c, 0x17, 0x0d, 0x11, 0x13, 0x11, 0x13, 0x07, 0x12, 0x13, 0x18, 0x00, 0x08, 0x0d, 0x2d, 0x32, 0x3f, 0x19, 0x39, 0x06, 0x0a, 0x0c, 0x17, 0x0e, 0x10, 0x13, 0x11, 0x14, 0x08, 0x12, 0x14, 0x17);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x01, 0x00, 0x08, 0x10, 0x18, 0x21, 0x27, 0x2f, 0x37, 0x3f, 0x47, 0x4f, 0x56, 0x5d, 0x65, 0x6d, 0x76, 0x7e, 0x86, 0x8e, 0x96, 0x9e, 0xa6, 0xaf, 0xb7, 0xbf, 0xc7, 0xcf, 0xd7, 0xdf, 0xe7, 0xef, 0xf7, 0xff, 0x01, 0x72, 0xf6, 0xed, 0x95, 0x60, 0x15, 0x01, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x01);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x00, 0x08, 0x10, 0x17, 0x1f, 0x27, 0x2e, 0x36, 0x3f, 0x47, 0x4f, 0x56, 0x5d, 0x65, 0x6d, 0x76, 0x7e, 0x86, 0x8e, 0x96, 0x9e, 0xa6, 0xae, 0xb6, 0xbe, 0xc6, 0xce, 0xd6, 0xde, 0xe5, 0xed, 0xf5, 0xfc, 0x00, 0x4a, 0x51, 0xde, 0x91, 0x5b, 0xba, 0x3a, 0xc0);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x02);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x00, 0x08, 0x10, 0x15, 0x1e, 0x26, 0x2e, 0x36, 0x40, 0x48, 0x50, 0x57, 0x5f, 0x67, 0x6f, 0x78, 0x80, 0x88, 0x90, 0x99, 0xa1, 0xa9, 0xb2, 0xba, 0xc2, 0xca, 0xd2, 0xda, 0xe1, 0xe9, 0xf1, 0xf8, 0xff, 0x00, 0xab, 0x02, 0x0f, 0xec, 0x60, 0x64, 0xe7, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb6, 0x78, 0x78);
++}
++
++static const struct drm_display_mode rook_hx8379c_tianma_mode = {
++	.clock       = 22833,
++	.hdisplay    = 480,
++	.hsync_start = 480 + 180,
++	.hsync_end   = 480 + 180 + 100,
++	.htotal      = 480 + 180 + 100 + 100,
++	.vdisplay    = 480,
++	.vsync_start = 480 + 6,
++	.vsync_end   = 480 + 6 + 4,
++	.vtotal      = 480 + 6 + 4 + 7,
++	.flags       = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
++	.type        = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static void rook_hx8379c_tianma_init(struct mipi_dsi_multi_context *dsi_ctx)
++{
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb9, 0xff, 0x83, 0x79);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb1, 0x44, 0x1a, 0x1a, 0x30, 0x30, 0x50, 0xd0, 0xe4, 0x54, 0x80, 0x38, 0x38, 0xf8, 0x22, 0x22, 0x22);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb2, 0x80, 0x14, 0x0b, 0x04, 0x10, 0x50, 0x11, 0x42, 0x1d);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb4, 0x01, 0xaa, 0x01, 0xaa, 0x01, 0xaa, 0x10, 0xea, 0x1c, 0xea);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc7, 0x00, 0x00, 0x00, 0xc0);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xcc, 0x02);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd2, 0x55);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd3, 0x00, 0x07, 0x00, 0x00, 0x00, 0x04, 0x04, 0x32, 0x10, 0x03, 0x00, 0x03, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06, 0x17, 0x11, 0x08, 0x08, 0x13, 0x05, 0x05, 0x13, 0x09);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd5, 0x18, 0x18, 0x18, 0x18, 0x25, 0x24, 0x18, 0x18, 0x03, 0x02, 0x18, 0x18, 0x01, 0x00, 0x18, 0x18, 0x19, 0x19, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x20, 0x20, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd6, 0x18, 0x18, 0x18, 0x18, 0x24, 0x25, 0x18, 0x18, 0x00, 0x01, 0x18, 0x18, 0x02, 0x03, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x19, 0x19, 0x18, 0x18, 0x20, 0x20, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xe0, 0x00, 0x0e, 0x15, 0x30, 0x32, 0x38, 0x27, 0x44, 0x07, 0x0b, 0x0d, 0x17, 0x0f, 0x12, 0x15, 0x14, 0x15, 0x08, 0x13, 0x15, 0x19, 0x00, 0x0e, 0x15, 0x30, 0x32, 0x38, 0x27, 0x44, 0x07, 0x0b, 0x0d, 0x17, 0x0f, 0x12, 0x15, 0x14, 0x15, 0x08, 0x13, 0x15, 0x19);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb6, 0x37, 0x3f);
++}
++
++static const struct drm_display_mode rook_hx8379c_boe_mode = {
++	.clock       = 22833,
++	.hdisplay    = 480,
++	.hsync_start = 480 + 180,
++	.hsync_end   = 480 + 180 + 100,
++	.htotal      = 480 + 180 + 100 + 100,
++	.vdisplay    = 480,
++	.vsync_start = 480 + 5,
++	.vsync_end   = 480 + 5 + 4,
++	.vtotal      = 480 + 5 + 4 + 8,
++	.flags       = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
++	.type        = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static void rook_hx8379c_boe_init(struct mipi_dsi_multi_context *dsi_ctx)
++{
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb9, 0xff, 0x83, 0x79);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb1, 0x44, 0x1c, 0x1c, 0x37, 0x57, 0x90, 0xd0, 0xe2, 0x58, 0x80, 0x38, 0x38, 0xf8, 0x33, 0x34, 0x42);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb2, 0x80, 0x14, 0x0c, 0x30, 0x20, 0x50, 0x11, 0x42, 0x1d);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb4, 0x01, 0xaa, 0x01, 0xaf, 0x01, 0xaf, 0x10, 0xea, 0x1c, 0xea);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc7, 0x00, 0x00, 0x00, 0xc0);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xcc, 0x02);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd2, 0x77);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd3, 0x00, 0x07, 0x00, 0x00, 0x00, 0x08, 0x08, 0x32, 0x10, 0x01, 0x00, 0x01, 0x03, 0x72, 0x03, 0x72, 0x00, 0x08, 0x00, 0x08, 0x33, 0x33, 0x05, 0x05, 0x37, 0x05, 0x05, 0x37, 0x0a, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0e);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd5, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x19, 0x19, 0x18, 0x18, 0x18, 0x18, 0x19, 0x19, 0x01, 0x00, 0x03, 0x02, 0x05, 0x04, 0x07, 0x06, 0x23, 0x22, 0x21, 0x20, 0x18, 0x18, 0x18, 0x18, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xd6, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x19, 0x19, 0x18, 0x18, 0x19, 0x19, 0x18, 0x18, 0x06, 0x07, 0x04, 0x05, 0x02, 0x03, 0x00, 0x01, 0x20, 0x21, 0x22, 0x23, 0x18, 0x18, 0x18, 0x18);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xe0, 0x00, 0x16, 0x1b, 0x30, 0x36, 0x3f, 0x23, 0x3f, 0x09, 0x0d, 0x0f, 0x18, 0x0e, 0x11, 0x13, 0x11, 0x14, 0x07, 0x12, 0x13, 0x18, 0x00, 0x17, 0x1c, 0x30, 0x36, 0x3f, 0x23, 0x40, 0x09, 0x0c, 0x0f, 0x18, 0x0e, 0x11, 0x13, 0x11, 0x12, 0x07, 0x12, 0x14, 0x18);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb6, 0x2c, 0x2c, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x01, 0x00, 0x07, 0x10, 0x18, 0x21, 0x29, 0x31, 0x39, 0x42, 0x49, 0x51, 0x5a, 0x61, 0x6a, 0x72, 0x7b, 0x83, 0x8b, 0x93, 0x9b, 0xa3, 0xab, 0xb3, 0xba, 0xc1, 0xc9, 0xd3, 0xda, 0xe4, 0xea, 0xf2, 0xf9, 0xfe, 0x36, 0x07, 0x1c, 0xc0, 0x1b, 0x01, 0xf1, 0x34, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x01);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x00, 0x08, 0x11, 0x19, 0x22, 0x2a, 0x32, 0x3b, 0x43, 0x4a, 0x53, 0x5b, 0x63, 0x6b, 0x73, 0x7b, 0x84, 0x8c, 0x94, 0x9c, 0xa4, 0xac, 0xb4, 0xbb, 0xc2, 0xcb, 0xd3, 0xdb, 0xe5, 0xeb, 0xf3, 0xf9, 0xff, 0x3b, 0x1a, 0xb6, 0xa0, 0x07, 0x45, 0xc5, 0x37, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x02);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xc1, 0x00, 0x08, 0x10, 0x19, 0x22, 0x29, 0x32, 0x3b, 0x43, 0x4b, 0x54, 0x5c, 0x65, 0x6b, 0x72, 0x7c, 0x83, 0x8b, 0x93, 0x9b, 0xa3, 0xab, 0xb3, 0xba, 0xc2, 0xca, 0xd2, 0xda, 0xe2, 0xeb, 0xf1, 0xf8, 0xfd, 0x0c, 0x31, 0x83, 0x3c, 0x5b, 0x56, 0x1e, 0x5a, 0x00);
++	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xbd, 0x00);
++}
++
++static const struct rook_hx8379c_info rook_hx8379c_inx_info = {
++	.mode = &rook_hx8379c_inx_mode,
++	.init_sequence = rook_hx8379c_inx_init,
++	.mode_flags = MIPI_DSI_MODE_VIDEO |
++		      MIPI_DSI_CLOCK_NON_CONTINUOUS |
++		      MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
++		      MIPI_DSI_MODE_LPM,
++};
++
++static const struct rook_hx8379c_info rook_hx8379c_tianma_info = {
++	.mode = &rook_hx8379c_tianma_mode,
++	.init_sequence = rook_hx8379c_tianma_init,
++	.mode_flags = MIPI_DSI_MODE_VIDEO |
++		      MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
++		      MIPI_DSI_MODE_LPM,
++};
++
++static const struct rook_hx8379c_info rook_hx8379c_boe_info = {
++	.mode = &rook_hx8379c_boe_mode,
++	.init_sequence = rook_hx8379c_boe_init,
++	.mode_flags = MIPI_DSI_MODE_VIDEO |
++		      MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
++		      MIPI_DSI_MODE_LPM,
++};
++
++static const struct rook_hx8379c_info*
++rook_hx8379c_get_panel_info(struct rook_hx8379c *ctx)
++{
++	int id0, id1, id;
++
++	id0 = gpiod_get_value_cansleep(ctx->id0_gpio);
++	id1 = gpiod_get_value_cansleep(ctx->id1_gpio);
++
++	id = (id1 << 1) | id0;
++
++	pr_err("%s: Panel ID: %d", __func__, id0);
++
++	switch (id) {
++		case PANEL_INX:
++		case PANEL_INXE:
++			return &rook_hx8379c_inx_info;
++		case PANEL_TIANMA:
++			return &rook_hx8379c_tianma_info;
++		case PANEL_BOE:
++			return &rook_hx8379c_boe_info;
++		default:
++			return ERR_PTR(-EINVAL);
++	}
++}
++
++static const struct drm_panel_funcs rook_hx8379c_panel_funcs = {
++	.prepare = rook_hx8379c_prepare,
++	.unprepare = rook_hx8379c_unprepare,
++	.enable = rook_hx8379c_enable,
++	.disable = rook_hx8379c_disable,
++	.get_modes = rook_hx8379c_get_modes,
++};
++
++static int rook_hx8379c_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct rook_hx8379c *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(&dsi->dev, struct rook_hx8379c, panel,
++				   &rook_hx8379c_panel_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ctx->panel.prepare_prev_first = true;
++
++	mipi_dsi_set_drvdata(dsi, ctx);
++	ctx->dsi = dsi;
++
++	ret = devm_regulator_bulk_get_const(dev,
++					    ARRAY_SIZE(rook_hx8379c_supplies),
++					    rook_hx8379c_supplies,
++					    &ctx->supplies);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "Failed to get regulators\n");
++
++#ifdef SKIP_PANEL_INIT
++	ret = regulator_bulk_enable(ARRAY_SIZE(rook_hx8379c_supplies),
++				    ctx->supplies);
++	if (ret < 0) {
++		dev_err(dev, "Failed to enable regulators\n");
++		return ret;
++	}
++#endif
++
++	ctx->id0_gpio = devm_gpiod_get(dev, "id0", GPIOD_IN);
++	if (IS_ERR(ctx->id0_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->id0_gpio),
++					 "Failed to get ID0 GPIO\n");
++
++	ctx->id1_gpio = devm_gpiod_get(dev, "id1", GPIOD_IN);
++	if (IS_ERR(ctx->id1_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->id1_gpio),
++					 "Failed to get ID1 GPIO\n");
++
++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_ASIS);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->id1_gpio),
++					 "Failed to get Reset GPIO\n");
++
++	ctx->info = rook_hx8379c_get_panel_info(ctx);
++	if (IS_ERR(ctx->info))
++		return dev_err_probe(dev, PTR_ERR(ctx->info),
++					 "Failed to read panel ID\n");
++
++	ret = drm_panel_of_backlight(&ctx->panel);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to get backlight\n");
++
++	drm_panel_add(&ctx->panel);
++
++	dsi->mode_flags = ctx->info->mode_flags;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->lanes = 2;
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&ctx->panel);
++		return dev_err_probe(dev, ret, "Failed to attach to DSI host\n");
++	}
++
++	return 0;
++}
++
++static void rook_hx8379c_remove(struct mipi_dsi_device *dsi)
++{
++	struct rook_hx8379c *ctx = mipi_dsi_get_drvdata(dsi);
++	int ret;
++
++	ret = mipi_dsi_detach(dsi);
++	if (ret < 0)
++		dev_err(&dsi->dev, "Failed to detach from DSI host: %d\n", ret);
++
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id rook_hx8379c_of_match[] = {
++	{ .compatible = "amazon,rook-hx8379c" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, rook_hx8379c_of_match);
++
++static struct mipi_dsi_driver rook_hx8379c_driver = {
++	.probe = rook_hx8379c_probe,
++	.remove = rook_hx8379c_remove,
++	.driver = {
++		.name = "panel-amazon-rook-hx8379c",
++		.of_match_table = rook_hx8379c_of_match,
++	},
++};
++module_mipi_dsi_driver(rook_hx8379c_driver);
++
++MODULE_AUTHOR("Ben Grisdale <bengris32@protonmail.ch>");
++MODULE_DESCRIPTION("DRM Driver for Rook's HX8379c Panels");
++MODULE_LICENSE("GPL v2");
+--- a/drivers/gpu/drm/sysfb/Kconfig
++++ b/drivers/gpu/drm/sysfb/Kconfig
+@@ -59,6 +59,7 @@
+ 	depends on DRM && MMU
+ 	select APERTURE_HELPERS
+ 	select DRM_CLIENT_SELECTION
++	select DRM_GEM_DMA_HELPER # douglas-zc
+ 	select DRM_GEM_SHMEM_HELPER
+ 	select DRM_KMS_HELPER
+ 	select DRM_SYSFB_HELPER
+--- a/drivers/gpu/drm/sysfb/drm_sysfb_helper.h
++++ b/drivers/gpu/drm/sysfb/drm_sysfb_helper.h
+@@ -80,6 +80,11 @@
+ 
+ 	/* hardware-framebuffer kernel address */
+ 	struct iosys_map fb_addr;
++
++	/* douglas: zero-copy scanout through MT8163 DISP_OVL0 layer 3 */
++	void __iomem *douglas_ovl;
++	u32 douglas_fb_phys, douglas_con, douglas_pitch;
++	bool douglas_zc_active;
+ };
+ 
+ static inline struct drm_sysfb_device *to_drm_sysfb_device(struct drm_device *dev)
+--- a/drivers/gpu/drm/sysfb/drm_sysfb_modeset.c
++++ b/drivers/gpu/drm/sysfb/drm_sysfb_modeset.c
+@@ -1,8 +1,10 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ 
++#include <linux/dma-mapping.h>
+ #include <linux/export.h>
+ #include <linux/slab.h>
+ 
++#include <drm/drm_gem_dma_helper.h>
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_atomic_state_helper.h>
+@@ -200,7 +202,10 @@
+ 
+ static drm_sysfb_blit_func drm_sysfb_get_blit_func(u32 dst_format, u32 src_format)
+ {
+-	if (src_format == dst_format) {
++	if (src_format == DRM_FORMAT_XBGR8888 && dst_format == DRM_FORMAT_ABGR8888) {
++		/* douglas: same layout, but OVL honours alpha: force it opaque */
++		return drm_fb_xrgb8888_to_argb8888;
++	} else if (src_format == dst_format) {
+ 		return drm_sysfb_memcpy;
+ 	} else if (src_format == DRM_FORMAT_XRGB8888) {
+ 		switch (dst_format) {
+@@ -302,6 +307,10 @@
+ 						  DRM_PLANE_NO_SCALING,
+ 						  DRM_PLANE_NO_SCALING,
+ 						  false, false);
++	/* Douglas: full redraw after the CRTC was (re-)enabled; damage clips are relative
++	 * to the compositor's buffer, not to the cleared scanout memory. */
++	if (!ret && new_crtc_state && drm_atomic_crtc_needs_modeset(new_crtc_state))
++		new_plane_state->ignore_damage_clips = true;
+ 	if (ret)
+ 		return ret;
+ 	else if (!new_plane_state->visible)
+@@ -326,6 +335,67 @@
+ }
+ EXPORT_SYMBOL(drm_sysfb_plane_helper_atomic_check);
+ 
++/* douglas: MT8163 DISP_OVL0 layer 3 registers */
++#define DOUGLAS_OVL_L3_CON	0x090
++#define DOUGLAS_OVL_L3_PITCH	0x0a4
++#define DOUGLAS_OVL_L3_ADDR	0x0fa0
++#define DOUGLAS_OVL_CON_AEN	BIT(8)
++#define DOUGLAS_OVL_CON_FMT_MASK	(GENMASK(15, 12) | BIT(24) | BIT(25))
++#define DOUGLAS_OVL_CON_RGBA8888	(2 << 12)
++#define DOUGLAS_OVL_CON_BYTE_SWAP	BIT(24)
++
++static void douglas_zc_restore(struct drm_sysfb_device *sysfb)
++{
++	if (!sysfb->douglas_zc_active)
++		return;
++	writel(sysfb->douglas_fb_phys, sysfb->douglas_ovl + DOUGLAS_OVL_L3_ADDR);
++	writel(sysfb->douglas_pitch, sysfb->douglas_ovl + DOUGLAS_OVL_L3_PITCH);
++	writel(sysfb->douglas_con, sysfb->douglas_ovl + DOUGLAS_OVL_L3_CON);
++	sysfb->douglas_zc_active = false;
++}
++
++/* Point the overlay at the framebuffer itself. Returns false to fall back to copying. */
++static bool douglas_zc_try(struct drm_sysfb_device *sysfb, struct drm_plane_state *ps)
++{
++	struct drm_framebuffer *fb = ps->fb;
++	struct drm_gem_dma_object *dma;
++	dma_addr_t addr;
++	u32 fmt;
++
++	if (!sysfb->douglas_ovl || !fb || !fb->obj[0] || !ps->visible)
++		return false;
++	switch (fb->format->format) {
++	case DRM_FORMAT_XBGR8888:
++	case DRM_FORMAT_ABGR8888:
++		fmt = DOUGLAS_OVL_CON_RGBA8888 | DOUGLAS_OVL_CON_BYTE_SWAP;
++		break;
++	case DRM_FORMAT_XRGB8888:
++	case DRM_FORMAT_ARGB8888:
++		fmt = DOUGLAS_OVL_CON_RGBA8888;
++		break;
++	default:
++		return false;
++	}
++	if (ps->src_x || ps->src_y || ps->crtc_x || ps->crtc_y ||
++	    (ps->src_w >> 16) != sysfb->fb_mode.hdisplay ||
++	    (ps->src_h >> 16) != sysfb->fb_mode.vdisplay || fb->pitches[0] > 0xffff)
++		return false;
++	dma = to_drm_gem_dma_obj(fb->obj[0]);
++	addr = dma->dma_addr + fb->offsets[0];
++	if (!dma->dma_addr || upper_32_bits(addr) || (addr & 0xf))
++		return false;
++
++	writel(lower_32_bits(addr), sysfb->douglas_ovl + DOUGLAS_OVL_L3_ADDR);
++	writel((sysfb->douglas_pitch & 0xffff0000) | fb->pitches[0],
++	       sysfb->douglas_ovl + DOUGLAS_OVL_L3_PITCH);
++	/* X/alpha byte is not meaningful: scan out opaque */
++	writel((sysfb->douglas_con & ~(DOUGLAS_OVL_CON_AEN | DOUGLAS_OVL_CON_FMT_MASK | 0xff)) |
++	       fmt | 0xff,
++	       sysfb->douglas_ovl + DOUGLAS_OVL_L3_CON);
++	sysfb->douglas_zc_active = true;
++	return true;
++}
++
+ void drm_sysfb_plane_helper_atomic_update(struct drm_plane *plane, struct drm_atomic_commit *state)
+ {
+ 	struct drm_device *dev = plane->dev;
+@@ -344,6 +414,21 @@
+ 	struct drm_rect damage;
+ 	int ret, idx;
+ 
++	bool douglas_full = false;
++
++	if (sysfb->douglas_ovl) {
++		if (!drm_dev_enter(dev, &idx))
++			return;
++		if (douglas_zc_try(sysfb, plane_state)) {
++			drm_dev_exit(idx);
++			return;
++		}
++		/* back to the LK framebuffer: its contents are stale, redraw everything */
++		douglas_full = sysfb->douglas_zc_active;
++		douglas_zc_restore(sysfb);
++		drm_dev_exit(idx);
++	}
++
+ 	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
+ 	if (ret)
+ 		return;
+@@ -351,6 +436,19 @@
+ 	if (!drm_dev_enter(dev, &idx))
+ 		goto out_drm_gem_fb_end_cpu_access;
+ 
++	if (douglas_full) {
++		struct iosys_map dst = sysfb->fb_addr;
++		struct drm_rect src = DRM_RECT_INIT(0, 0, fb->width, fb->height);
++		struct drm_rect dst_clip = plane_state->dst;
++
++		if (drm_rect_intersect(&dst_clip, &src)) {
++			iosys_map_incr(&dst, drm_fb_clip_offset(dst_pitch, dst_format, &dst_clip));
++			blit_to_crtc(&dst, &dst_pitch, shadow_plane_state->data, fb, &src,
++				     &shadow_plane_state->fmtcnv_state);
++		}
++		goto out_drm_dev_exit;
++	}
++
+ 	drm_atomic_helper_damage_iter_init(&iter, old_plane_state, plane_state);
+ 	drm_atomic_for_each_plane_damage(&iter, &damage) {
+ 		struct iosys_map dst = sysfb->fb_addr;
+@@ -364,6 +462,7 @@
+ 			     &shadow_plane_state->fmtcnv_state);
+ 	}
+ 
++out_drm_dev_exit:
+ 	drm_dev_exit(idx);
+ out_drm_gem_fb_end_cpu_access:
+ 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
+@@ -394,6 +493,8 @@
+ 	if (!drm_dev_enter(dev, &idx))
+ 		return;
+ 
++	douglas_zc_restore(sysfb);	/* douglas: never scan out a buffer that may be freed */
++
+ 	/* Clear buffer to black if disabled */
+ 	dst_vmap += drm_fb_clip_offset(dst_pitch, dst_format, &dst_clip);
+ 	for (i = 0; i < lines; ++i) {
+--- a/drivers/gpu/drm/sysfb/simpledrm.c
++++ b/drivers/gpu/drm/sysfb/simpledrm.c
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ 
+ #include <linux/aperture.h>
++#include <linux/backlight.h>
+ #include <linux/clk.h>
+ #include <linux/minmax.h>
+ #include <linux/of_address.h>
+@@ -20,11 +21,11 @@
+ #include <drm/drm_damage_helper.h>
+ #include <drm/drm_device.h>
+ #include <drm/drm_drv.h>
+-#include <drm/drm_fbdev_shmem.h>
++#include <drm/drm_fbdev_dma.h>
+ #include <drm/drm_framebuffer.h>
+ #include <drm/drm_gem_atomic_helper.h>
+ #include <drm/drm_gem_framebuffer_helper.h>
+-#include <drm/drm_gem_shmem_helper.h>
++#include <drm/drm_gem_dma_helper.h>
+ #include <drm/drm_managed.h>
+ #include <drm/drm_modeset_helper.h>
+ #include <drm/drm_modeset_helper_vtables.h>
+@@ -583,8 +584,43 @@
+ 	.destroy = drm_plane_cleanup,
+ };
+ 
++static struct backlight_device *simpledrm_backlight(struct drm_crtc *crtc)
++{
++	static struct backlight_device *bl;
++	struct device_node *np;
++
++	if (bl || !crtc->dev->dev->of_node)
++		return bl;
++	np = of_parse_phandle(crtc->dev->dev->of_node, "backlight", 0);
++	if (np) {
++		bl = of_find_backlight_by_node(np);
++		of_node_put(np);
++	}
++	return bl;
++}
++
++static void simpledrm_crtc_atomic_enable(struct drm_crtc *crtc,
++					 struct drm_atomic_commit *state)
++{
++	struct backlight_device *bl = simpledrm_backlight(crtc);
++
++	if (bl)
++		backlight_enable(bl);
++}
++
++static void simpledrm_crtc_atomic_disable(struct drm_crtc *crtc,
++					  struct drm_atomic_commit *state)
++{
++	struct backlight_device *bl = simpledrm_backlight(crtc);
++
++	if (bl)
++		backlight_disable(bl);
++}
++
+ static const struct drm_crtc_helper_funcs simpledrm_crtc_helper_funcs = {
+ 	DRM_SYSFB_CRTC_HELPER_FUNCS,
++	.atomic_enable = simpledrm_crtc_atomic_enable,
++	.atomic_disable = simpledrm_crtc_atomic_disable,
+ };
+ 
+ static const struct drm_crtc_funcs simpledrm_crtc_funcs = {
+@@ -810,6 +846,20 @@
+ 		iosys_map_set_vaddr_iomem(&sysfb->fb_addr, screen_base);
+ 	}
+ 
++	/* douglas: LK leaves DISP_OVL0 layer 3 scanning this framebuffer; take it over */
++	if (of_machine_is_compatible("amazon,douglas")) {
++		void __iomem *ovl = devm_ioremap(&pdev->dev, 0x14007000, 0x1000);
++
++		if (ovl && readl(ovl + 0xfa0) == (u32)mem->start) {
++			sysfb->douglas_ovl = ovl;
++			sysfb->douglas_fb_phys = mem->start;
++			sysfb->douglas_con = readl(ovl + 0x90);
++			sysfb->douglas_pitch = readl(ovl + 0xa4);
++			drm_info(dev, "douglas: zero-copy scanout via OVL0 layer 3 (con %08x)\n",
++				 sysfb->douglas_con);
++		}
++	}
++
+ 	/*
+ 	 * Modesetting
+ 	 */
+@@ -864,8 +914,10 @@
+ 	/* Connector */
+ 
+ 	connector = &sdev->connector;
++	/* Douglas: built-in panel when the firmware framebuffer has a backlight. */
+ 	ret = drm_connector_init(dev, connector, &simpledrm_connector_funcs,
+-				 DRM_MODE_CONNECTOR_Unknown);
++				 of_property_present(pdev->dev.of_node, "backlight") ?
++				 DRM_MODE_CONNECTOR_DSI : DRM_MODE_CONNECTOR_Unknown);
+ 	if (ret)
+ 		return ERR_PTR(ret);
+ 	drm_connector_helper_add(connector, &simpledrm_connector_helper_funcs);
+@@ -887,10 +939,11 @@
+ 
+ DEFINE_DRM_GEM_FOPS(simpledrm_fops);
+ 
++
+ static struct drm_driver simpledrm_driver = {
+-	DRM_GEM_SHMEM_DRIVER_OPS,
+-	DRM_FBDEV_SHMEM_DRIVER_OPS,
+-	.name			= DRIVER_NAME,
++	DRM_GEM_DMA_DRIVER_OPS_VMAP,	/* douglas: contiguous, scanned out directly */
++	DRM_FBDEV_DMA_DRIVER_OPS,
++	.name			= "mediatek",	/* douglas: kmsro pairs us with panfrost */
+ 	.desc			= DRIVER_DESC,
+ 	.major			= DRIVER_MAJOR,
+ 	.minor			= DRIVER_MINOR,
